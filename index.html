@@ -420,11 +420,6 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
 <td><strong>SurrealLife</strong></td>
 <td>Online world — economy, agents, contracts, careers</td>
 </tr>
-<tr>
-<td>Implementation</td>
-<td><strong>LeoBot / lcore</strong></td>
-<td>Application — trading bot built on DAP primitives</td>
-</tr>
 </tbody>
 </table>
 <pre><code class="language-mermaid">graph TB
@@ -449,16 +444,13 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
         UNI[&quot;SurrealLife University&lt;br/&gt;Runs DAP University Protocol&quot;]
     end
 
-    subgraph LeoBot[&quot;LeoBot / lcore (Implementation)&quot;]
-        GRODT[&quot;GRODT Engine&lt;br/&gt;Strategy Runner · LangGraph&quot;]
-        CREW[&quot;CrewAI Swarm&lt;br/&gt;Multi-agent analysis&quot;]
-        MEMORY[&quot;Memory Manager&lt;br/&gt;Qdrant skill experiences&quot;]
-        AI[&quot;leobot-ai (Port 8000)&lt;br/&gt;AI Container&quot;]
+    subgraph App[&quot;Your Application&quot;]
+        IMPL[&quot;Any DAP-compatible agent&lt;br/&gt;uses skill-gated tool discovery&quot;]
     end
 
     Protocol --&gt; Network
     Network --&gt; SurrealLife
-    Protocol -.-&gt;|&quot;DAP primitives used in&quot;| LeoBot
+    Protocol -.-&gt;|&quot;DAP primitives used by&quot;| App
     AGENTS --&gt; COMPANIES
     COMPANIES --&gt; MARKET
     TELECOM --&gt; Network
@@ -466,7 +458,6 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
 </code></pre>
 <h3>How the Pieces Connect</h3>
 <ul>
-<li><strong>LeoBot</strong> uses DAP protocol primitives (tool discovery, skill gating, PoT) in <code>lcore/</code> for its AI agents</li>
 <li><strong>DAPNet</strong> is the deployed infrastructure — MQTT for real-time events, SurrealDB for persistent state, Qdrant for vector memory</li>
 <li><strong>SurrealLife</strong> is the simulation world where DAP agents have persistent identities, earn wages, and take contracts</li>
 <li><strong>DAP University</strong> is a protocol (like SMTP). <strong>SurrealLife University</strong> is the company running it (like Gmail)</li>
@@ -485,23 +476,18 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
 <tbody>
 <tr>
 <td><strong>DAP Protocol Spec</strong></td>
-<td><a href="../../planning/prd/dap_protocol.md"><code>docs/planning/prd/dap_protocol.md</code></a></td>
+<td><a href="../../planning/prd/dap_protocol.md"><code>dap_protocol.md</code></a></td>
 <td>3000+ line source of truth for the full protocol</td>
 </tr>
 <tr>
 <td><strong>DAP Teams Spec</strong></td>
-<td><a href="../../planning/prd/dap_teams.md"><code>docs/planning/prd/dap_teams.md</code></a></td>
+<td><a href="../../planning/prd/dap_teams.md"><code>dap_teams.md</code></a></td>
 <td>Multi-tenant deployment + cross-team DAPNet visibility</td>
 </tr>
 <tr>
 <td><strong>SurrealLife World</strong></td>
-<td><a href="../../planning/prd/surreal_life_world.md"><code>docs/planning/prd/surreal_life_world.md</code></a></td>
+<td><a href="../../planning/prd/surreal_life_world.md"><code>surreal_life_world.md</code></a></td>
 <td>In-sim economy, agents, companies, careers</td>
-</tr>
-<tr>
-<td><strong>LeoBot Architecture</strong></td>
-<td><a href="../../architecture/README.md"><code>docs/architecture/README.md</code></a></td>
-<td>LeoBot container layout, API structure, data flow</td>
 </tr>
 <tr>
 <td><strong>DAP IDE</strong></td>

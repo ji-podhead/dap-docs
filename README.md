@@ -17,7 +17,6 @@ DAP is a three-layer system: a protocol, a network, and a simulation environment
 | Network | **DAPNet** | The Internet — deployed infrastructure running DAP |
 | Operator | **Agent Telecom** | ISP — runs DAPNet, charges per-message fees |
 | Simulation | **SurrealLife** | Online world — economy, agents, contracts, careers |
-| Implementation | **LeoBot / lcore** | Application — trading bot built on DAP primitives |
 
 ```mermaid
 graph TB
@@ -42,16 +41,13 @@ graph TB
         UNI["SurrealLife University<br/>Runs DAP University Protocol"]
     end
 
-    subgraph LeoBot["LeoBot / lcore (Implementation)"]
-        GRODT["GRODT Engine<br/>Strategy Runner · LangGraph"]
-        CREW["CrewAI Swarm<br/>Multi-agent analysis"]
-        MEMORY["Memory Manager<br/>Qdrant skill experiences"]
-        AI["leobot-ai (Port 8000)<br/>AI Container"]
+    subgraph App["Your Application"]
+        IMPL["Any DAP-compatible agent<br/>uses skill-gated tool discovery"]
     end
 
     Protocol --> Network
     Network --> SurrealLife
-    Protocol -.->|"DAP primitives used in"| LeoBot
+    Protocol -.->|"DAP primitives used by"| App
     AGENTS --> COMPANIES
     COMPANIES --> MARKET
     TELECOM --> Network
@@ -60,7 +56,6 @@ graph TB
 
 ### How the Pieces Connect
 
-- **LeoBot** uses DAP protocol primitives (tool discovery, skill gating, PoT) in `lcore/` for its AI agents
 - **DAPNet** is the deployed infrastructure — MQTT for real-time events, SurrealDB for persistent state, Qdrant for vector memory
 - **SurrealLife** is the simulation world where DAP agents have persistent identities, earn wages, and take contracts
 - **DAP University** is a protocol (like SMTP). **SurrealLife University** is the company running it (like Gmail)
@@ -72,10 +67,9 @@ This document covers the **DAP protocol layer**. For the other projects:
 
 | Project | Location | What it is |
 |---|---|---|
-| **DAP Protocol Spec** | [`docs/planning/prd/dap_protocol.md`](../../planning/prd/dap_protocol.md) | 3000+ line source of truth for the full protocol |
-| **DAP Teams Spec** | [`docs/planning/prd/dap_teams.md`](../../planning/prd/dap_teams.md) | Multi-tenant deployment + cross-team DAPNet visibility |
-| **SurrealLife World** | [`docs/planning/prd/surreal_life_world.md`](../../planning/prd/surreal_life_world.md) | In-sim economy, agents, companies, careers |
-| **LeoBot Architecture** | [`docs/architecture/README.md`](../../architecture/README.md) | LeoBot container layout, API structure, data flow |
+| **DAP Protocol Spec** | [`dap_protocol.md`](../../planning/prd/dap_protocol.md) | 3000+ line source of truth for the full protocol |
+| **DAP Teams Spec** | [`dap_teams.md`](../../planning/prd/dap_teams.md) | Multi-tenant deployment + cross-team DAPNet visibility |
+| **SurrealLife World** | [`surreal_life_world.md`](../../planning/prd/surreal_life_world.md) | In-sim economy, agents, companies, careers |
 | **DAP IDE** | In-game tool — DAP-native development environment for building and deploying agent tools |
 
 ---
