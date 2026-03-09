@@ -339,6 +339,7 @@
 <li><a href="#doc-protocol">Protocol</a></li>
 <li><a href="#doc-acl">ACL</a></li>
 <li><a href="#doc-tool-registration">Tool Registration</a></li>
+<li><a href="#doc-tool-skill-binding">Tool–Skill Binding</a></li>
 <li><a href="#doc-bloat-score">Bloat Score</a></li>
 <li class="sidebar-section">Skills & Workflows</li>
 <li><a href="#doc-skills">Skills</a></li>
@@ -346,7 +347,7 @@
 <li><a href="#doc-skill-flows">Skill Flows</a></li>
 <li><a href="#doc-artifacts">Artifacts</a></li>
 <li><a href="#doc-jinja">Jinja Templates</a></li>
-<li><a href="#doc-dap-vs">DAP vs MCP / Claude</a></li>
+<li><a href="#doc-dap-vs">DAP vs MCP / Claude / Teams</a></li>
 <li class="sidebar-section">RAG & Memory</li>
 <li><a href="#doc-rag">RAG</a></li>
 <li><a href="#doc-crew-memory">Crew Memory</a></li>
@@ -362,18 +363,21 @@
 <li><a href="#doc-proof-of-delivery">Proof of Delivery</a></li>
 <li class="sidebar-section">Interoperability</li>
 <li><a href="#doc-a2a-bridge">A2A Bridge</a></li>
+<li><a href="#doc-n8n">n8n Integration</a></li>
 <li class="sidebar-section">Efficiency & Benchmarking</li>
 <li><a href="#doc-efficiency">Token Efficiency</a></li>
 <li><a href="#doc-university">DAP University</a></li>
 <li class="sidebar-section">Infrastructure</li>
 <li><a href="#doc-apps">DAP Apps</a></li>
 <li><a href="#doc-bench">DAP Bench</a></li>
+<li><a href="#doc-logs">DAP Logs</a></li>
 <li><a href="#doc-migrate">Migration Guide</a></li>
 <li><a href="#doc-teams">DAP Teams</a></li>
 <li class="sidebar-section">SurrealLife Integration</li>
 <li><a href="#doc-agentbay">AgentBay</a></li>
 <li><a href="#doc-store-permissions">Store Permissions</a></li>
 <li><a href="#doc-state-contracts">State Contracts</a></li>
+<li><a href="#doc-buckets">DAP Buckets</a></li>
     </ul>
   </nav>
 </aside>
@@ -1384,6 +1388,237 @@ bloat_score:                            # computed at registration, can be overr
 - <a href="https://surrealdb.com/docs/surrealdb/surrealql/statements/define/event">SurrealDB Events</a></p>
 </blockquote>
 <p><em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md §4, §5, §9</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-tool-skill-binding" class="doc-section">
+<h1>DAP Tool–Skill Binding — Reference</h1>
+<p>Tools and skills are two sides of the same system. A <strong>skill</strong> is the agent's accumulated capability score. A <strong>tool</strong> is gated behind a skill threshold. Skills are not just metadata — they determine what the agent can see, call, and improve at. Skill Flows (workflows, RAG, PoT) are the layer on top that orchestrates how tools are actually executed.</p>
+<blockquote>
+<p>Tools are the interface. Skills are the key. Workflows are the engine.</p>
+</blockquote>
+<hr />
+<h2>The Relationship at a Glance</h2>
+<pre><code class="language-mermaid">graph LR
+    subgraph Agent
+        SK[&quot;Skill Score\nfinance: 71&quot;]
+    end
+
+    subgraph DAP Registry
+        T1[&quot;market_analysis\nskill_min: 40\nskill_linked: finance\nskill_gain: 1.5&quot;]
+        T2[&quot;portfolio_optimizer\nskill_min: 60\nskill_linked: finance\nskill_gain: 2.0&quot;]
+        T3[&quot;quant_model_v2\nskill_min: 80\nskill_linked: finance\nskill_gain: 3.0&quot;]
+    end
+
+    SK --&gt;|&quot;71 ≥ 40 ✓&quot;| T1
+    SK --&gt;|&quot;71 ≥ 60 ✓&quot;| T2
+    SK --&gt;|&quot;71 &lt; 80 ✗ invisible&quot;| T3
+
+    T1 --&gt;|&quot;on success: +1.5&quot;| SK
+    T2 --&gt;|&quot;on success: +2.0&quot;| SK
+</code></pre>
+<p>A tool defines which skill gates it, how much it contributes back, and which artifacts it produces. The agent's skill score determines what they can see and call. Successful invocations feed back into the skill — the loop is closed.</p>
+<hr />
+<h2>Tool Registration — Skill Fields</h2>
+<p>Every tool YAML declares its skill relationship:</p>
+<pre><code class="language-yaml">name: market_analysis
+description: &quot;Analyze market conditions for a trading symbol&quot;
+
+# Skill binding
+skill_required: finance         # which skill dimension gates this tool
+skill_min: 40                   # minimum score to see + call this tool
+skill_gain: 1.5                 # suggested gain on successful invocation
+skill_gain_proofed: 2.25        # gain × 1.5 if PoT-proofed (auto-calculated)
+
+# Artifact output
+produces_artifact: true
+artifact_skill: finance         # artifact stored in agent's finance skill bucket
+artifact_type: market_signal    # used for HNSW retrieval in future invocations
+
+# Workflow
+workflow: market_analysis_flow.yaml
+</code></pre>
+<p>Multiple skills can be linked with different weights:</p>
+<pre><code class="language-yaml">name: cross_asset_analysis
+skill_bindings:
+  - skill: finance
+    weight: 0.6
+    min: 50
+  - skill: macro_economics
+    weight: 0.4
+    min: 30
+skill_gain: 2.0     # distributed across linked skills by weight on success
+</code></pre>
+<hr />
+<h2>Skill Dimensions</h2>
+<p>Skills are not a single number — each agent has a score per dimension. Tools filter by dimension:</p>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Example tools gated behind it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>finance</code></td>
+<td>market_analysis, portfolio_optimizer, risk_model</td>
+</tr>
+<tr>
+<td><code>research</code></td>
+<td>web_search, prove_claim (PoS), document_synthesis</td>
+</tr>
+<tr>
+<td><code>hacking</code></td>
+<td>port_scan, exploit_framework, credential_test</td>
+</tr>
+<tr>
+<td><code>writing</code></td>
+<td>report_generator, press_release, contract_draft</td>
+</tr>
+<tr>
+<td><code>coding</code></td>
+<td>code_review, refactor_engine, test_generator</td>
+</tr>
+<tr>
+<td><code>trading</code></td>
+<td>order_execution, position_sizing, backtest_runner</td>
+</tr>
+<tr>
+<td><code>management</code></td>
+<td>task_create, team_dashboard, resource_allocator</td>
+</tr>
+</tbody>
+</table>
+<p>Each dimension has its own 0–100 scale. An agent with <code>finance: 71, hacking: 42</code> sees finance tools at tier 60+ but hacking tools only at tier 40. They are different people in the same body.</p>
+<hr />
+<h2>How a Tool Call Grows a Skill</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant A as Agent
+    participant D as DAP Server
+    participant H as Host (skill store)
+    participant B as Bucket
+
+    A-&gt;&gt;D: InvokeTool(&quot;market_analysis&quot;, params)
+    D-&gt;&gt;D: skill gate: finance 71 ≥ 40 ✓
+    D-&gt;&gt;B: fetch top-3 skill artifacts (finance, HNSW)
+    B--&gt;&gt;D: artifacts injected into workflow context
+    D-&gt;&gt;D: run workflow → PoT gate (score: 78 ≥ 65 ✓)
+    D--&gt;&gt;A: InvokeResponse + SkillGainEvent{skill: finance, gain: 1.5}
+    D-&gt;&gt;B: store proofed artifact in agent:skill_artifacts
+    A-&gt;&gt;H: apply gain (host owns skill store)
+    H-&gt;&gt;H: finance: 71 → 72.5 (capped, scaled by PoT score)
+    H--&gt;&gt;A: next DiscoverTools reflects 72.5
+</code></pre>
+<p>The DAP server <strong>suggests</strong> the gain via <code>SkillGainEvent</code>. The host <strong>applies</strong> it — with business rules (daily cap, PoT scaling, cooldown). DAP stays stateless with respect to skill scores.</p>
+<hr />
+<h2>Skill Tier Thresholds</h2>
+<p>Tools cluster around common thresholds. Crossing a threshold reveals a new tier of tools:</p>
+<pre><code>Tier 0  (score 0–9):   Basic read-only tools — fetch data, retrieve records
+Tier 1  (score 10–39): Standard analysis — summarize, compare, report
+Tier 2  (score 40–59): Intermediate — market_analysis, portfolio_read, basic proofs
+Tier 3  (score 60–79): Advanced — portfolio_optimizer, live trading, team management
+Tier 4  (score 80–99): Expert — quant_model, employ_subagent, contraband tools (in AgentBay)
+Tier 5  (score 100):   Master — unrestricted within skill dimension
+</code></pre>
+<p>Crossing a threshold is invisible — no notification. The agent simply sees new tools appear in their next <code>DiscoverTools</code> response. The world expands without fanfare.</p>
+<hr />
+<h2>Skills vs Workflows vs Skill Flows</h2>
+<p>These three concepts are related but distinct:</p>
+<table>
+<thead>
+<tr>
+<th>Concept</th>
+<th>What it is</th>
+<th>Layer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Skill</strong></td>
+<td>A score (0–100) per dimension, stored in host skill store</td>
+<td>Agent identity</td>
+</tr>
+<tr>
+<td><strong>Tool</strong></td>
+<td>A callable function gated by skill threshold</td>
+<td>DAP registry</td>
+</tr>
+<tr>
+<td><strong>Workflow</strong></td>
+<td>The execution plan inside a tool — phases: rag, llm, pot, script</td>
+<td>Tool internals</td>
+</tr>
+<tr>
+<td><strong>Skill Flow</strong></td>
+<td>The complete lifecycle: skill → discovery → invocation → artifact → gain feedback</td>
+<td>System architecture</td>
+</tr>
+</tbody>
+</table>
+<pre><code>Skill ──gates──► Tool ──runs──► Workflow ──produces──► Artifact ──updates──► Skill
+  ↑                                                                               │
+  └───────────────────── SkillGainEvent ◄────────────────────────────────────────┘
+</code></pre>
+<p>A <strong>Skill Flow</strong> is the name for this entire loop. A <strong>Workflow</strong> is just one phase inside a tool invocation. A <strong>Skill</strong> is the persistent score that makes the whole thing move.</p>
+<hr />
+<h2>Artifact as Skill Memory</h2>
+<p>When a tool invocation succeeds (especially with PoT proof), the result is stored as a <strong>skill artifact</strong> in the agent's private bucket. On the next invocation of any skill-linked tool, the top-3 matching artifacts are injected into the workflow context before the LLM phase runs.</p>
+<pre><code>Invocation 1: no artifacts → generic analysis
+Invocation 5: 3 past approaches injected → richer reasoning
+Invocation 20: 3 highly-rated past approaches → expert-level context
+
+Same task. Same tool. Radically different quality as skill grows.
+</code></pre>
+<p>This is why experienced agents produce better outputs at similar token cost — their skill artifacts carry compressed expertise that a new agent would take 10x the tokens to rediscover from scratch.</p>
+<hr />
+<h2>Public vs Private Skill Assets</h2>
+<table>
+<thead>
+<tr>
+<th>Asset</th>
+<th>Scope</th>
+<th>Who sees it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>agent:{id}:skill_artifacts</code></td>
+<td>Private</td>
+<td>Only the agent — invisible competitive advantage</td>
+</tr>
+<tr>
+<td><code>company:{id}:artifacts</code></td>
+<td>Company</td>
+<td>All employed agents — shared approaches</td>
+</tr>
+<tr>
+<td><code>skill_pool_public</code></td>
+<td>Public</td>
+<td>Any DAPNet agent — endorsed, PoT-verified approaches</td>
+</tr>
+<tr>
+<td>Tool <code>skill_min</code> field</td>
+<td>Public</td>
+<td>Visible in <code>tool_registry</code> — anyone can see the threshold</td>
+</tr>
+<tr>
+<td>Agent <code>skill.score</code></td>
+<td>Configurable</td>
+<td><code>public.skill.score</code> visible to employers; private details hidden</td>
+</tr>
+</tbody>
+</table>
+<p>A company hires agents based on their <strong>public skill score</strong>. Their private artifacts (the actual competitive edge) remain invisible. The score proves capability; the artifacts encode how.</p>
+<hr />
+<blockquote>
+<p><strong>References</strong>
+- Yao et al. (2023). <em>ReAct: Synergizing Reasoning and Acting in Language Models.</em> ICLR 2023. <a href="https://arxiv.org/abs/2210.03629">arXiv:2210.03629</a> — skill-tool binding operationalizes reasoning + acting with typed, gated actions
+- Wang et al. (2024). <em>A Survey on Large Language Model based Autonomous Agents.</em> <a href="https://arxiv.org/abs/2308.11432">arXiv:2308.11432</a> — skill memory and tool-use in agent architectures; DAP formalizes the feedback loop</p>
+</blockquote>
+<p><em>See also: <a href="#doc-skills">skills.md</a> · <a href="#doc-tool-registration">tool-registration.md</a> · <a href="#doc-skill-flows">skill-flows.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-artifacts">artifacts.md</a> · <a href="#doc-buckets">buckets.md</a></em>
+<em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 
@@ -5001,6 +5236,512 @@ Life Agent appears in SurrealLife as a regular agent:
 <div class="section-divider"></div>
 
 
+<section id="doc-n8n" class="doc-section">
+<h1>DAP n8n Integration — Reference</h1>
+<p>n8n connects DAP to the broader automation world. DAP provides two node families: <strong>Trigger Nodes</strong> that fire on DAPNet events, and <strong>Action Nodes</strong> that invoke DAP operations. Together they make any DAP agent or task event a first-class automation trigger.</p>
+<blockquote>
+<p>DAP is the agent protocol. n8n is the automation layer on top. Every task, every skill unlock, every blocker — all become n8n workflow triggers.</p>
+</blockquote>
+<hr />
+<h2>Node Families</h2>
+<pre><code>DAP n8n Nodes
+│
+├─ Trigger Nodes (start a workflow)
+│   ├─ DAP Task Assigned         — fires when agent receives a task
+│   ├─ DAP Task Status Changed   — fires on any task state transition
+│   ├─ DAP Task Completed        — fires when task reaches &quot;done&quot; + PoD issued
+│   ├─ DAP Blocker Raised        — fires when task hits &quot;blocked&quot; state
+│   ├─ DAP Skill Unlocked        — fires when agent crosses a skill threshold
+│   ├─ DAP Agent Online/Offline  — fires on Last Will or reconnect
+│   └─ DAP Tool Registered       — fires when new tool enters registry
+│
+└─ Action Nodes (call DAP operations)
+    ├─ DAP Invoke Tool            — call InvokeTool on any registered tool
+    ├─ DAP Discover Tools         — run DiscoverTools with skill context
+    ├─ DAP Create Task            — create and assign a task record
+    ├─ DAP Update Task            — update task status, result_ref, pod_ref
+    ├─ DAP Search Tools           — semantic SearchTools query
+    └─ DAP Get Artifact           — retrieve a stored skill artifact
+</code></pre>
+<hr />
+<h2>Trigger Nodes</h2>
+<h3>DAP Task Assigned Trigger</h3>
+<p>Fires when a new task is assigned to a specific agent or agent group. Transport: MQTT subscription or SurrealDB LIVE SELECT.</p>
+<pre><code class="language-json">// Trigger config
+{
+  &quot;node&quot;: &quot;DAP Task Assigned&quot;,
+  &quot;transport&quot;: &quot;mqtt&quot;,
+  &quot;topic&quot;: &quot;dap/agents/{{agentId}}/inbox&quot;,
+  &quot;filter&quot;: {
+    &quot;type&quot;: &quot;task_assigned&quot;,
+    &quot;priority&quot;: [&quot;high&quot;, &quot;critical&quot;]   // optional filter
+  }
+}
+
+// Output payload
+{
+  &quot;task_id&quot;: &quot;task:abc123&quot;,
+  &quot;title&quot;: &quot;Analyze BTC market conditions&quot;,
+  &quot;assigned_by&quot;: &quot;agent:ceo&quot;,
+  &quot;priority&quot;: &quot;high&quot;,
+  &quot;deadline&quot;: &quot;2026-03-10T08:00:00Z&quot;,
+  &quot;context&quot;: { &quot;symbol&quot;: &quot;BTC/USDC&quot;, &quot;timeframe&quot;: &quot;4h&quot; }
+}
+</code></pre>
+<h3>DAP Task Status Changed Trigger</h3>
+<p>Subscribes to LIVE SELECT on the task table. Fires on every state transition for monitored tasks.</p>
+<pre><code class="language-json">// Trigger config
+{
+  &quot;node&quot;: &quot;DAP Task Status Changed&quot;,
+  &quot;transport&quot;: &quot;surreal_live&quot;,
+  &quot;query&quot;: &quot;LIVE SELECT * FROM task WHERE assigned_to = $agentId&quot;,
+  &quot;emit_on&quot;: [&quot;pending&quot;, &quot;active&quot;, &quot;blocked&quot;, &quot;done&quot;, &quot;failed&quot;]
+}
+
+// Output payload
+{
+  &quot;task_id&quot;: &quot;task:abc123&quot;,
+  &quot;previous_status&quot;: &quot;active&quot;,
+  &quot;new_status&quot;: &quot;blocked&quot;,
+  &quot;blocker&quot;: &quot;DataGrid provider down — missing BTC/USDC feed&quot;,
+  &quot;agent&quot;: &quot;agent:market_analyst&quot;,
+  &quot;timestamp&quot;: &quot;2026-03-09T14:22:11Z&quot;
+}
+</code></pre>
+<h3>DAP Task Completed Trigger</h3>
+<p>Fires only when status flips to <code>done</code> AND a PoD certificate is attached. Guaranteed delivery event.</p>
+<pre><code class="language-json">// Trigger config
+{
+  &quot;node&quot;: &quot;DAP Task Completed&quot;,
+  &quot;transport&quot;: &quot;mqtt&quot;,
+  &quot;topic&quot;: &quot;dap/teams/{{teamId}}/tasks/+/status&quot;,
+  &quot;filter&quot;: { &quot;status&quot;: &quot;done&quot;, &quot;pod_ref&quot;: { &quot;$exists&quot;: true } }
+}
+
+// Output payload
+{
+  &quot;task_id&quot;: &quot;task:abc123&quot;,
+  &quot;result_ref&quot;: &quot;artifact:xyz789&quot;,
+  &quot;pod_ref&quot;: &quot;pod:sha256:a3f9...&quot;,
+  &quot;pod_signature&quot;: &quot;ed25519:9f3a...&quot;,
+  &quot;completed_at&quot;: &quot;2026-03-09T15:00:00Z&quot;,
+  &quot;agent&quot;: &quot;agent:market_analyst&quot;
+}
+</code></pre>
+<h3>DAP Blocker Raised Trigger</h3>
+<p>Fires when any task in a team hits <code>blocked</code> status. Routes to the boss or orchestrator.</p>
+<pre><code class="language-json">// Trigger config
+{
+  &quot;node&quot;: &quot;DAP Blocker Raised&quot;,
+  &quot;transport&quot;: &quot;mqtt&quot;,
+  &quot;topic&quot;: &quot;dap/teams/{{teamId}}/blockers&quot;
+}
+
+// Output payload
+{
+  &quot;task_id&quot;: &quot;task:abc123&quot;,
+  &quot;title&quot;: &quot;Analyze BTC market conditions&quot;,
+  &quot;blocker&quot;: &quot;DataGrid provider down&quot;,
+  &quot;agent&quot;: &quot;agent:market_analyst&quot;,
+  &quot;team&quot;: &quot;team:quant_desk&quot;
+}
+</code></pre>
+<h3>DAP Skill Unlocked Trigger</h3>
+<p>Fires when an agent's skill score crosses a tool visibility threshold. Useful for onboarding flows, notifications, or automatically assigning new task types.</p>
+<pre><code class="language-json">// Trigger config
+{
+  &quot;node&quot;: &quot;DAP Skill Unlocked&quot;,
+  &quot;transport&quot;: &quot;surreal_live&quot;,
+  &quot;query&quot;: &quot;LIVE SELECT * FROM skill_event WHERE agent_id = $agentId AND event = 'threshold_crossed'&quot;
+}
+
+// Output payload
+{
+  &quot;agent_id&quot;: &quot;agent:junior_analyst&quot;,
+  &quot;skill&quot;: &quot;finance&quot;,
+  &quot;previous_score&quot;: 39,
+  &quot;new_score&quot;: 41,
+  &quot;threshold_crossed&quot;: 40,
+  &quot;tools_unlocked&quot;: [&quot;market_analysis&quot;, &quot;portfolio_optimizer&quot;]
+}
+</code></pre>
+<h3>DAP Agent Online / Offline Trigger</h3>
+<p>Uses MQTT Last Will to detect agent disconnect. Fires on reconnect via <code>$SYS</code> or agent presence topic.</p>
+<pre><code class="language-json">// Trigger config
+{
+  &quot;node&quot;: &quot;DAP Agent Online/Offline&quot;,
+  &quot;transport&quot;: &quot;mqtt&quot;,
+  &quot;topic&quot;: &quot;dap/agents/{{agentId}}/presence&quot;
+}
+
+// Output payload (offline)
+{
+  &quot;agent_id&quot;: &quot;agent:market_analyst&quot;,
+  &quot;event&quot;: &quot;offline&quot;,
+  &quot;last_seen&quot;: &quot;2026-03-09T14:22:11Z&quot;,
+  &quot;active_tasks&quot;: [&quot;task:abc123&quot;, &quot;task:def456&quot;]
+}
+</code></pre>
+<h3>DAP Tool Registered Trigger</h3>
+<p>Fires when a new tool is registered in the DAP registry — index version bump triggers rediscovery.</p>
+<pre><code class="language-json">// Trigger config
+{
+  &quot;node&quot;: &quot;DAP Tool Registered&quot;,
+  &quot;transport&quot;: &quot;mqtt&quot;,
+  &quot;topic&quot;: &quot;dap/registry/tools/new&quot;
+}
+
+// Output payload
+{
+  &quot;tool_name&quot;: &quot;sector_sentiment_v2&quot;,
+  &quot;skill_required&quot;: &quot;finance&quot;,
+  &quot;skill_min&quot;: 55,
+  &quot;bloat_score&quot;: { &quot;total&quot;: 215, &quot;grade&quot;: &quot;A&quot; },
+  &quot;registered_by&quot;: &quot;company:research_corp&quot;
+}
+</code></pre>
+<hr />
+<h2>Action Nodes</h2>
+<h3>DAP Invoke Tool</h3>
+<p>Calls <code>InvokeTool</code> on any registered DAP tool. Passes agent skills for ACL + skill gate enforcement.</p>
+<pre><code class="language-json">// Node config
+{
+  &quot;node&quot;: &quot;DAP Invoke Tool&quot;,
+  &quot;tool_name&quot;: &quot;market_analysis&quot;,
+  &quot;agent_id&quot;: &quot;{{$json.agent_id}}&quot;,
+  &quot;agent_skills&quot;: { &quot;finance&quot;: 71 },
+  &quot;params&quot;: {
+    &quot;symbol&quot;: &quot;{{$json.context.symbol}}&quot;,
+    &quot;timeframe&quot;: &quot;{{$json.context.timeframe}}&quot;
+  },
+  &quot;stream&quot;: false
+}
+
+// Output
+{
+  &quot;result&quot;: { &quot;signal&quot;: &quot;long&quot;, &quot;confidence&quot;: 0.82 },
+  &quot;artifact_id&quot;: &quot;artifact:xyz789&quot;,
+  &quot;pot_score&quot;: 78,
+  &quot;pod_ref&quot;: &quot;pod:sha256:a3f9...&quot;,
+  &quot;skill_gain&quot;: { &quot;skill&quot;: &quot;finance&quot;, &quot;gain&quot;: 1.5 }
+}
+</code></pre>
+<h3>DAP Create Task</h3>
+<p>Creates a new task record in SurrealDB and assigns it to an agent. Agent is notified immediately via LIVE SELECT or MQTT inbox.</p>
+<pre><code class="language-json">// Node config
+{
+  &quot;node&quot;: &quot;DAP Create Task&quot;,
+  &quot;title&quot;: &quot;{{$json.task_title}}&quot;,
+  &quot;assigned_to&quot;: &quot;{{$json.agent_id}}&quot;,
+  &quot;assigned_by&quot;: &quot;agent:orchestrator&quot;,
+  &quot;priority&quot;: &quot;high&quot;,
+  &quot;deadline_hours&quot;: 4,
+  &quot;context&quot;: &quot;{{$json.task_context}}&quot;
+}
+
+// Output
+{
+  &quot;task_id&quot;: &quot;task:ulid_abc&quot;,
+  &quot;status&quot;: &quot;pending&quot;,
+  &quot;assigned_to&quot;: &quot;agent:market_analyst&quot;,
+  &quot;created_at&quot;: &quot;2026-03-09T14:00:00Z&quot;
+}
+</code></pre>
+<h3>DAP Discover Tools</h3>
+<p>Runs <code>DiscoverTools</code> with the agent's skill context. Returns tool summaries within the token budget.</p>
+<pre><code class="language-json">// Node config
+{
+  &quot;node&quot;: &quot;DAP Discover Tools&quot;,
+  &quot;context&quot;: &quot;{{$json.task_title}}&quot;,
+  &quot;agent_skills&quot;: &quot;{{$json.agent_skills}}&quot;,
+  &quot;max_tools&quot;: 5
+}
+
+// Output
+{
+  &quot;tools&quot;: [
+    { &quot;name&quot;: &quot;market_analysis&quot;, &quot;description&quot;: &quot;Analyze market conditions&quot;, &quot;description_tokens&quot;: 12 },
+    { &quot;name&quot;: &quot;portfolio_optimizer&quot;, &quot;description&quot;: &quot;Optimize portfolio weights&quot;, &quot;description_tokens&quot;: 14 }
+  ],
+  &quot;total_tokens&quot;: 26
+}
+</code></pre>
+<hr />
+<h2>Workflow Patterns</h2>
+<h3>Pattern 1 — Task Auto-Routing</h3>
+<p>Boss creates a task in n8n, DAP assigns it, n8n monitors until completion:</p>
+<pre><code class="language-mermaid">graph TD
+    A[n8n: New Work Item] --&gt; B[DAP Create Task Node]
+    B --&gt; C[DAP Task Assigned Trigger\nfires on agent inbox]
+    C --&gt; D[Agent executes via InvokeTool]
+    D --&gt; E{Task Status}
+    E --&gt;|done + PoD| F[DAP Task Completed Trigger]
+    E --&gt;|blocked| G[DAP Blocker Raised Trigger]
+    F --&gt; H[n8n: Notify client / close ticket]
+    G --&gt; I[n8n: Alert boss / reassign]
+    I --&gt; B
+</code></pre>
+<h3>Pattern 2 — Skill-Gated Onboarding</h3>
+<p>New agent joins, n8n tracks their skill progression and auto-assigns appropriate tasks:</p>
+<pre><code class="language-mermaid">graph TD
+    A[DAP Agent Online Trigger] --&gt; B[n8n: Check agent skill profile]
+    B --&gt; C{finance score?}
+    C --&gt;|score &lt; 40| D[Assign beginner tasks\nfinance skill_min=10]
+    C --&gt;|score &gt;= 40| E[Assign intermediate tasks\nfinance skill_min=40]
+    D --&gt; F[DAP Skill Unlocked Trigger\nthreshold=40 crossed]
+    F --&gt; G[n8n: Promote agent\nnotify team lead]
+    G --&gt; E
+</code></pre>
+<h3>Pattern 3 — Tool Registration → Team Notification</h3>
+<p>New tool deployed → n8n notifies all teams whose agents qualify:</p>
+<pre><code class="language-mermaid">graph TD
+    A[DAP Tool Registered Trigger] --&gt; B[n8n: Query agents\nwhere skill &gt;= skill_min]
+    B --&gt; C[For each qualified agent:\nDAP Discover Tools]
+    C --&gt; D[n8n: Send MQTT notification\ndap/agents/id/inbox]
+    D --&gt; E[Agent sees new tool\non next activation]
+</code></pre>
+<h3>Pattern 4 — n8n as <code>type: n8n</code> Workflow Phase</h3>
+<p>DAP workflows can delegate a phase to n8n. The n8n workflow runs, result returns to DAP:</p>
+<pre><code class="language-yaml"># Inside a DAP skill workflow YAML
+phases:
+  - id: enrich_with_n8n
+    type: n8n
+    workflow_id: &quot;sentiment_enrichment&quot;     # n8n workflow ID
+    webhook_url: &quot;http://n8n:5678/webhook/dap-enrich&quot;
+    input_from: task.input
+    output_to: enriched_context
+    timeout_s: 30
+
+  - id: analyze
+    type: llm
+    input_from: [task.input, enriched_context]
+    prompt_template: market_analysis.jinja
+</code></pre>
+<p>The n8n webhook receives the DAP task context, runs its own node chain (e.g. fetch news, call APIs, aggregate signals), and returns structured data back into the workflow.</p>
+<hr />
+<h2>Transport Details</h2>
+<p>DAP trigger nodes support two transports — pick based on latency and persistence needs:</p>
+<table>
+<thead>
+<tr>
+<th>Transport</th>
+<th>Latency</th>
+<th>Persistence</th>
+<th>Best for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>MQTT</strong></td>
+<td>Sub-100ms</td>
+<td>QoS 1/2 for guaranteed delivery</td>
+<td>Task inbox, blockers, presence</td>
+</tr>
+<tr>
+<td><strong>SurrealDB LIVE SELECT</strong></td>
+<td>~10ms intra-system</td>
+<td>Persistent state, full query support</td>
+<td>Task status, skill events, team dashboard</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-python"># MQTT transport config (inside n8n DAP node)
+mqtt_config = {
+    &quot;broker&quot;: &quot;mqtt://emqx:1883&quot;,
+    &quot;client_id&quot;: &quot;n8n-dap-bridge&quot;,
+    &quot;qos&quot;: 1,
+    &quot;clean_session&quot;: False,   # survive n8n restart
+    &quot;will&quot;: {
+        &quot;topic&quot;: &quot;dap/n8n/presence&quot;,
+        &quot;payload&quot;: &quot;offline&quot;,
+        &quot;qos&quot;: 1,
+        &quot;retain&quot;: True
+    }
+}
+
+# SurrealDB LIVE SELECT transport
+surreal_config = {
+    &quot;url&quot;: &quot;ws://surrealdb:8000/rpc&quot;,
+    &quot;ns&quot;: &quot;dap&quot;, &quot;db&quot;: &quot;production&quot;,
+    &quot;query&quot;: &quot;LIVE SELECT * FROM task WHERE team_id = $teamId&quot;
+}
+</code></pre>
+<hr />
+<h2>ACL — n8n as a DAP Principal</h2>
+<p>n8n operates as a named principal in the DAP ACL stack, not as a user. It gets its own agent identity with scoped permissions:</p>
+<pre><code class="language-surql">-- n8n bridge gets its own agent record
+CREATE agent:n8n_bridge SET
+    name        = &quot;n8n Automation Bridge&quot;,
+    type        = &quot;service&quot;,
+    skills      = {},           -- no skill gates needed for service accounts
+    acl_roles   = [&quot;task_manager&quot;, &quot;tool_observer&quot;];
+
+-- Casbin: n8n can create tasks and read tool registry, cannot invoke tools directly
+p, agent:n8n_bridge, /tasks/*, create
+p, agent:n8n_bridge, /tasks/*, read
+p, agent:n8n_bridge, /tasks/*, update
+p, agent:n8n_bridge, /tools/registry, read
+-- n8n cannot call InvokeTool — agents do their own invocations
+</code></pre>
+<p>This separation means n8n manages the orchestration layer (task creation, routing, monitoring) while agents handle the actual tool invocations — maintaining the skill gate integrity.</p>
+<hr />
+<h2>Error Handling</h2>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>n8n handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent goes offline mid-task</td>
+<td><code>DAP Agent Offline Trigger</code> → reassign or escalate</td>
+</tr>
+<tr>
+<td>Task deadline missed</td>
+<td>DEFINE EVENT → MQTT → <code>DAP Blocker Raised Trigger</code> → alert node</td>
+</tr>
+<tr>
+<td>InvokeTool <code>skill_insufficient</code></td>
+<td>Action node returns error → n8n routes to skill-appropriate agent</td>
+</tr>
+<tr>
+<td>PoD missing on delivery</td>
+<td>Task Completed Trigger never fires → timeout node escalates</td>
+</tr>
+<tr>
+<td>MQTT broker disconnect</td>
+<td>n8n MQTT node reconnects with stored session (QoS 1, <code>clean_session: false</code>)</td>
+</tr>
+<tr>
+<td>SurrealDB LIVE SELECT dropped</td>
+<td>n8n re-subscribes on reconnect, replays missed events from <code>created_at</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>n8n as Message Queue Bridge</h2>
+<p>DAP Apps use <code>DAPQueue</code> (Redis-backed) for async job handling within a single deployment. n8n extends this across deployments — it connects DAP App queues from different DAPNet instances and routes jobs between them.</p>
+<pre><code class="language-mermaid">graph LR
+    subgraph DeploymentA[&quot;Deployment A — Company Research Corp&quot;]
+        QA[&quot;DAPQueue\nRedis&quot;]
+        WA[&quot;Worker Pool\n@job handlers&quot;]
+        QA --&gt; WA
+    end
+
+    subgraph N8N[&quot;n8n Bridge&quot;]
+        T1[&quot;DAP Task Completed\nTrigger&quot;]
+        A1[&quot;HTTP Request Node\nor DAP Invoke Tool&quot;]
+        T1 --&gt; A1
+    end
+
+    subgraph DeploymentB[&quot;Deployment B — Company HedgeFund&quot;]
+        QB[&quot;DAPQueue\nRedis&quot;]
+        WB[&quot;Worker Pool\n@job handlers&quot;]
+        QB --&gt; WB
+    end
+
+    WA --&gt;|&quot;MQTT: task done + PoD&quot;| T1
+    A1 --&gt;|&quot;DAP Create Task\nor direct queue push&quot;| QB
+</code></pre>
+<h3>Cross-Deployment Patterns</h3>
+<p><strong>Fan-out across companies:</strong> Research Corp completes a report → n8n distributes to 5 HedgeFund agents simultaneously:</p>
+<pre><code class="language-json">// n8n: DAP Task Completed → fan-out
+{
+  &quot;trigger&quot;: &quot;DAP Task Completed&quot;,
+  &quot;filter&quot;: { &quot;tool_name&quot;: &quot;research_report&quot; },
+  &quot;then&quot;: [
+    { &quot;node&quot;: &quot;DAP Create Task&quot;, &quot;deployment&quot;: &quot;hedgefund-dapnet&quot;, &quot;agent&quot;: &quot;agent:portfolio_a&quot; },
+    { &quot;node&quot;: &quot;DAP Create Task&quot;, &quot;deployment&quot;: &quot;hedgefund-dapnet&quot;, &quot;agent&quot;: &quot;agent:portfolio_b&quot; },
+    { &quot;node&quot;: &quot;DAP Create Task&quot;, &quot;deployment&quot;: &quot;hedgefund-dapnet&quot;, &quot;agent&quot;: &quot;agent:risk_desk&quot; }
+  ]
+}
+</code></pre>
+<p><strong>Cross-team dependency resolution:</strong> Team A finishes → n8n unblocks Team B in a different deployment:</p>
+<pre><code class="language-json">// n8n: monitors Team A task → triggers Team B task when done
+{
+  &quot;trigger&quot;: &quot;DAP Task Status Changed&quot;,
+  &quot;deployment&quot;: &quot;deployment-A&quot;,
+  &quot;filter&quot;: { &quot;task_id&quot;: &quot;task:research_phase_1&quot;, &quot;new_status&quot;: &quot;done&quot; },
+  &quot;then&quot;: {
+    &quot;node&quot;: &quot;DAP Update Task&quot;,
+    &quot;deployment&quot;: &quot;deployment-B&quot;,
+    &quot;task_id&quot;: &quot;task:analysis_phase_2&quot;,
+    &quot;status&quot;: &quot;pending&quot;
+  }
+}
+</code></pre>
+<p><strong>Message queue bridge for long-running async jobs:</strong> n8n polls a DAP App <code>job_id</code> across deployments:</p>
+<pre><code>Deployment A                n8n                    Deployment B
+─────────────────────────────────────────────────────────────────
+invoke_async(&quot;analysis&quot;)  →  job_id received
+                              poll every 30s
+                              ← result ready
+                              → push result to QB  →  Worker picks up
+                                                       processes result
+                                                       updates task record
+</code></pre>
+<h3>Why n8n Over Direct MQTT for Cross-Deployment</h3>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Direct MQTT Cross-Broker</th>
+<th>n8n Bridge</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Auth / ACL</strong></td>
+<td>Complex cross-broker federation</td>
+<td>n8n handles per-deployment credentials</td>
+</tr>
+<tr>
+<td><strong>Transform</strong></td>
+<td>Raw payload forwarded</td>
+<td>n8n maps, filters, enriches between schemas</td>
+</tr>
+<tr>
+<td><strong>Retry logic</strong></td>
+<td>Manual</td>
+<td>Built-in n8n error handling + retry nodes</td>
+</tr>
+<tr>
+<td><strong>Visibility</strong></td>
+<td>Invisible</td>
+<td>n8n execution log shows every cross-deployment event</td>
+</tr>
+<tr>
+<td><strong>Conditional routing</strong></td>
+<td>Broker-level filters only</td>
+<td>Full n8n logic: if/switch/merge</td>
+</tr>
+<tr>
+<td><strong>Mixed transports</strong></td>
+<td>Not possible</td>
+<td>MQTT → SurrealDB → HTTP → queue all in one flow</td>
+</tr>
+</tbody>
+</table>
+<h3>DAP Teams vs n8n for Cross-Team Work</h3>
+<p>DAP Teams handles cross-team visibility <strong>within one DAPNet deployment</strong> — shared LIVE SELECT dashboards, MQTT topic subscriptions, task graph dependencies. n8n handles cross-deployment scenarios:</p>
+<pre><code>Same DAPNet:       Team A ←→ Team B     →  use DAP Teams MQTT subscriptions
+Cross-deployment:  Corp A ←→ Corp B     →  use n8n bridge
+Hybrid:            Corp A has n8n       →  n8n routes internally AND externally
+</code></pre>
+<hr />
+<blockquote>
+<p><strong>References</strong>
+- Fair, R. et al. (2024). <em>n8n: Low-Code Workflow Automation.</em> <a href="https://n8n.io">n8n.io</a> — node-based automation; DAP trigger/action nodes extend n8n's agent-facing capabilities
+- Wooldridge &amp; Jennings (1995). <em>Intelligent Agents: Theory and Practice.</em> — task allocation in multi-agent systems; n8n provides the external orchestration shell</p>
+</blockquote>
+<p><em>See also: <a href="#doc-tasks">tasks.md</a> · <a href="#doc-messaging">messaging.md</a> · <a href="#doc-apps">apps.md</a> · <a href="#doc-surreal-events">surreal-events.md</a> · <a href="#doc-a2a-bridge">a2a-bridge.md</a></em>
+<em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
 <section id="doc-efficiency" class="doc-section">
 <h1>DAP Token Efficiency — Reference</h1>
 <p>DAP treats token usage as a <strong>first-class protocol metric</strong>, not an afterthought. Every tool, artifact, and workflow phase has a measured cost. The system gates on quality and optimizes for signal density.</p>
@@ -5956,6 +6697,350 @@ dap-bench run --server grpc://localhost:50051 --output results.json
 <div class="section-divider"></div>
 
 
+<section id="doc-logs" class="doc-section">
+<h1>DAP Logs — Reference</h1>
+<p>DAP Logs are structured audit records generated automatically on every protocol operation — <code>InvokeTool</code>, <code>DiscoverTools</code>, skill gain events, task state transitions, PoD issuance. Every log entry is a first-class SurrealDB record, streamed via MQTT and queryable via LIVE SELECT.</p>
+<blockquote>
+<p>LeoBot writes <code>audit_logs</code> to DuckDB via Redis EventBridge. DAP Logs do the same thing natively — SurrealDB as the log store, MQTT as the stream, LIVE SELECT as the live view. No EventBridge needed: the protocol emits logs itself.</p>
+</blockquote>
+<hr />
+<h2>Log Architecture</h2>
+<pre><code class="language-mermaid">graph TD
+    subgraph Protocol[&quot;DAP Protocol Operations&quot;]
+        IT[&quot;InvokeTool&quot;]
+        DT[&quot;DiscoverTools&quot;]
+        SG[&quot;SkillGainEvent&quot;]
+        TS[&quot;Task Status Change&quot;]
+        PD[&quot;PoD Issued&quot;]
+    end
+
+    subgraph LogPipeline[&quot;Log Pipeline&quot;]
+        AU[&quot;DAP Audit Layer\nauto-emits on every op&quot;]
+        SR[&quot;SurrealDB\ntool_call_log / audit_log&quot;]
+        MQ[&quot;MQTT\ndap/logs/{team_id}/stream&quot;]
+    end
+
+    subgraph Consumers[&quot;Consumers&quot;]
+        LS[&quot;LIVE SELECT\nreal-time dashboard&quot;]
+        QR[&quot;Query / Analytics\nbatch reporting&quot;]
+        AL[&quot;Alert Rules\nDEFINE EVENT on log&quot;]
+    end
+
+    IT --&gt; AU
+    DT --&gt; AU
+    SG --&gt; AU
+    TS --&gt; AU
+    PD --&gt; AU
+
+    AU --&gt;|&quot;INSERT&quot;| SR
+    AU --&gt;|&quot;QoS 1 publish&quot;| MQ
+
+    SR --&gt; LS
+    SR --&gt; QR
+    SR --&gt; AL
+    MQ --&gt; LS
+</code></pre>
+<hr />
+<h2>Log Schema</h2>
+<pre><code class="language-surql">DEFINE TABLE tool_call_log SCHEMAFULL PERMISSIONS
+    FOR select WHERE $auth.team_id = team_id OR $auth.role CONTAINS &quot;admin&quot;
+    FOR create NONE   -- written only by DAP audit layer
+    FOR update NONE
+    FOR delete NONE;
+
+DEFINE FIELD id          ON tool_call_log TYPE record;
+DEFINE FIELD agent_id    ON tool_call_log TYPE record&lt;agent&gt;;
+DEFINE FIELD team_id     ON tool_call_log TYPE record&lt;team&gt;;
+DEFINE FIELD tool_name   ON tool_call_log TYPE string;
+DEFINE FIELD op          ON tool_call_log TYPE string;   -- invoke | discover | search | skill_gain
+DEFINE FIELD params_hash ON tool_call_log TYPE string;   -- sha256 of params (not raw params)
+DEFINE FIELD outcome     ON tool_call_log TYPE string;   -- success | error | skill_insufficient | pot_failed
+DEFINE FIELD pot_score   ON tool_call_log TYPE option&lt;float&gt;;
+DEFINE FIELD pod_ref     ON tool_call_log TYPE option&lt;record&lt;pod&gt;&gt;;
+DEFINE FIELD skill_gain  ON tool_call_log TYPE option&lt;object&gt;;  -- {skill, gain, new_score}
+DEFINE FIELD latency_ms  ON tool_call_log TYPE int;
+DEFINE FIELD token_cost  ON tool_call_log TYPE int;      -- tokens consumed by this operation
+DEFINE FIELD created_at  ON tool_call_log TYPE datetime  DEFAULT time::now();
+</code></pre>
+<p><strong>Params are never logged raw</strong> — only their hash. Privacy by design: the log proves <em>what happened</em> without storing <em>what was passed</em>.</p>
+<hr />
+<h2>Log Types</h2>
+<h3>InvokeTool Log</h3>
+<p>Generated on every tool call, regardless of outcome:</p>
+<pre><code class="language-json">{
+  &quot;id&quot;: &quot;tool_call_log:ulid_abc&quot;,
+  &quot;agent_id&quot;: &quot;agent:market_analyst&quot;,
+  &quot;team_id&quot;: &quot;team:quant_desk&quot;,
+  &quot;tool_name&quot;: &quot;market_analysis&quot;,
+  &quot;op&quot;: &quot;invoke&quot;,
+  &quot;params_hash&quot;: &quot;sha256:a3f9...&quot;,
+  &quot;outcome&quot;: &quot;success&quot;,
+  &quot;pot_score&quot;: 78,
+  &quot;pod_ref&quot;: &quot;pod:sha256:b7c2...&quot;,
+  &quot;skill_gain&quot;: { &quot;skill&quot;: &quot;finance&quot;, &quot;gain&quot;: 1.5, &quot;new_score&quot;: 72.5 },
+  &quot;latency_ms&quot;: 1240,
+  &quot;token_cost&quot;: 620,
+  &quot;created_at&quot;: &quot;2026-03-09T14:22:11Z&quot;
+}
+</code></pre>
+<h3>DiscoverTools Log</h3>
+<p>Tracks discovery efficiency — how many tokens the discovery phase consumed:</p>
+<pre><code class="language-json">{
+  &quot;op&quot;: &quot;discover&quot;,
+  &quot;tool_name&quot;: null,
+  &quot;outcome&quot;: &quot;success&quot;,
+  &quot;latency_ms&quot;: 42,
+  &quot;token_cost&quot;: 38,
+  &quot;meta&quot;: {
+    &quot;tools_returned&quot;: 4,
+    &quot;tools_filtered_acl&quot;: 12,
+    &quot;tools_filtered_skill&quot;: 7,
+    &quot;context_query&quot;: &quot;analyze BTC market conditions&quot;
+  }
+}
+</code></pre>
+<h3>Skill Gate Rejection Log</h3>
+<p>When an agent tries to call a tool they don't qualify for:</p>
+<pre><code class="language-json">{
+  &quot;op&quot;: &quot;invoke&quot;,
+  &quot;tool_name&quot;: &quot;quant_model_v2&quot;,
+  &quot;outcome&quot;: &quot;skill_insufficient&quot;,
+  &quot;latency_ms&quot;: 3,
+  &quot;token_cost&quot;: 0,
+  &quot;meta&quot;: {
+    &quot;required&quot;: { &quot;skill&quot;: &quot;finance&quot;, &quot;min&quot;: 80 },
+    &quot;actual&quot;: { &quot;skill&quot;: &quot;finance&quot;, &quot;score&quot;: 71 },
+    &quot;gap&quot;: 9
+  }
+}
+</code></pre>
+<h3>PoT Failed Log</h3>
+<p>When the quality gate rejects an output after max retries:</p>
+<pre><code class="language-json">{
+  &quot;op&quot;: &quot;invoke&quot;,
+  &quot;tool_name&quot;: &quot;market_analysis&quot;,
+  &quot;outcome&quot;: &quot;pot_failed&quot;,
+  &quot;pot_score&quot;: 52,
+  &quot;latency_ms&quot;: 3800,
+  &quot;token_cost&quot;: 1840,
+  &quot;meta&quot;: {
+    &quot;retries&quot;: 2,
+    &quot;threshold&quot;: 65,
+    &quot;final_score&quot;: 52
+  }
+}
+</code></pre>
+<h3>Task Log</h3>
+<p>Task state transitions emit their own log stream:</p>
+<pre><code class="language-json">{
+  &quot;op&quot;: &quot;task_transition&quot;,
+  &quot;tool_name&quot;: null,
+  &quot;outcome&quot;: &quot;blocked&quot;,
+  &quot;meta&quot;: {
+    &quot;task_id&quot;: &quot;task:abc123&quot;,
+    &quot;from_status&quot;: &quot;active&quot;,
+    &quot;to_status&quot;: &quot;blocked&quot;,
+    &quot;blocker&quot;: &quot;DataGrid provider down&quot;
+  }
+}
+</code></pre>
+<hr />
+<h2>Efficiency vs LeoBot</h2>
+<p>LeoBot uses DuckDB + Redis EventBridge for audit logs. DAP Logs use SurrealDB natively — no bridge needed:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>LeoBot audit_logs</th>
+<th>DAP Logs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Store</strong></td>
+<td>DuckDB (<code>audit_logs</code> table)</td>
+<td>SurrealDB (<code>tool_call_log</code>)</td>
+</tr>
+<tr>
+<td><strong>Stream</strong></td>
+<td>Redis <code>leobot:grodt:events</code> → EventBridge</td>
+<td>MQTT <code>dap/logs/{team}/stream</code> direct</td>
+</tr>
+<tr>
+<td><strong>Live view</strong></td>
+<td>WebSocket → <code>logStore.js</code> → History Page</td>
+<td>LIVE SELECT → any subscriber</td>
+</tr>
+<tr>
+<td><strong>Write path</strong></td>
+<td><code>_emit()</code> → Redis → EventBridge → <code>record_audit()</code></td>
+<td>DAP audit layer → direct INSERT</td>
+</tr>
+<tr>
+<td><strong>Query</strong></td>
+<td>DuckDB SQL (offline)</td>
+<td>SurrealDB live + batch</td>
+</tr>
+<tr>
+<td><strong>Privacy</strong></td>
+<td>Full params stored</td>
+<td>Params hash only</td>
+</tr>
+<tr>
+<td><strong>Cost tracking</strong></td>
+<td>Not tracked</td>
+<td><code>token_cost</code> per operation</td>
+</tr>
+<tr>
+<td><strong>ACL on logs</strong></td>
+<td>App-level</td>
+<td>SurrealDB PERMISSIONS (row-level)</td>
+</tr>
+<tr>
+<td><strong>Alert rules</strong></td>
+<td>Manual polling</td>
+<td>DEFINE EVENT on log table</td>
+</tr>
+</tbody>
+</table>
+<p>The key efficiency gain: <strong>no EventBridge</strong>. The DAP audit layer writes directly into SurrealDB on every protocol operation — zero extra hops.</p>
+<hr />
+<h2>LIVE SELECT — Real-Time Log Dashboard</h2>
+<pre><code class="language-python"># Team lead sees all logs for their team live
+live_id = await db.live(
+    &quot;tool_call_log WHERE team_id = $team_id ORDER BY created_at DESC&quot;,
+    vars={&quot;team_id&quot;: &quot;team:quant_desk&quot;}
+)
+async for entry in db.live_notifications(live_id):
+    log = entry[&quot;result&quot;]
+    if log[&quot;outcome&quot;] == &quot;pot_failed&quot;:
+        await alert_boss(log)
+    elif log[&quot;outcome&quot;] == &quot;skill_insufficient&quot;:
+        await suggest_training(log[&quot;agent_id&quot;], log[&quot;meta&quot;])
+</code></pre>
+<hr />
+<h2>MQTT Log Stream</h2>
+<p>Every log entry is also published to MQTT for external consumers (n8n, dashboards, alerting):</p>
+<pre><code>dap/logs/{team_id}/stream          → all log entries for the team
+dap/logs/{team_id}/errors          → outcome != &quot;success&quot; only
+dap/logs/{agent_id}/personal       → agent's own log stream
+dap/logs/{team_id}/token_usage     → aggregated token cost per agent per hour
+</code></pre>
+<pre><code class="language-python"># n8n subscribes to error stream → fires alert workflow
+mqtt.subscribe(&quot;dap/logs/team:quant_desk/errors&quot;, qos=1)
+</code></pre>
+<hr />
+<h2>Alert Rules via DEFINE EVENT</h2>
+<pre><code class="language-surql">-- Alert boss when PoT keeps failing for same agent
+DEFINE EVENT pot_failure_pattern ON tool_call_log
+WHEN $event = &quot;CREATE&quot; AND $after.outcome = &quot;pot_failed&quot; THEN {
+    LET $recent_failures = (
+        SELECT count() FROM tool_call_log
+        WHERE agent_id = $after.agent_id
+          AND outcome = &quot;pot_failed&quot;
+          AND created_at &gt; time::now() - 1h
+        GROUP ALL
+    )[0].count;
+
+    IF $recent_failures &gt;= 3 {
+        -- Escalate to boss + suggest university
+        http::post('http://dapnet/internal/alerts', {
+            type:    &quot;repeated_pot_failure&quot;,
+            agent:   $after.agent_id,
+            count:   $recent_failures,
+            suggest: &quot;university_enrollment&quot;
+        });
+    };
+};
+
+-- Alert on skill exploitation (too many calls without growth)
+DEFINE EVENT skill_farming_check ON tool_call_log
+WHEN $event = &quot;CREATE&quot; AND $after.outcome = &quot;success&quot; THEN {
+    LET $today_gains = (
+        SELECT math::sum(skill_gain.gain) AS total FROM tool_call_log
+        WHERE agent_id = $after.agent_id
+          AND created_at &gt; time::now() - 24h
+        GROUP ALL
+    )[0].total;
+
+    IF $today_gains &gt; 20 {
+        http::post('http://dapnet/internal/alerts', {
+            type:  &quot;skill_farming_detected&quot;,
+            agent: $after.agent_id,
+            total_gain_24h: $today_gains
+        });
+    };
+};
+</code></pre>
+<hr />
+<h2>Log Retention &amp; Cost</h2>
+<p>Logs are stored in SurrealDB with configurable retention. DAPCom charges for log storage in private buckets:</p>
+<table>
+<thead>
+<tr>
+<th>Retention</th>
+<th>Cost (DAPCom)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>7 days (default)</td>
+<td>Free tier</td>
+</tr>
+<tr>
+<td>30 days</td>
+<td>Included in Pro plan</td>
+</tr>
+<tr>
+<td>1 year</td>
+<td>Enterprise — audit-grade, tamper-evident</td>
+</tr>
+<tr>
+<td>Forever (PoD-linked)</td>
+<td>PoD records are permanent by protocol — no expiry</td>
+</tr>
+</tbody>
+</table>
+<p><strong>PoD-linked log entries</strong> (<code>pod_ref != NONE</code>) are never deleted — they are the audit trail for contract delivery. All other logs expire per retention policy.</p>
+<hr />
+<h2>Querying Logs</h2>
+<pre><code class="language-surql">-- Token cost per agent last 24h — find expensive agents
+SELECT agent_id, math::sum(token_cost) AS total_tokens
+FROM tool_call_log
+WHERE created_at &gt; time::now() - 24h
+GROUP BY agent_id
+ORDER BY total_tokens DESC;
+
+-- Discovery efficiency — how many tools fetched per invoke
+SELECT
+    agent_id,
+    math::mean(meta.tools_returned) AS avg_tools_returned,
+    math::mean(token_cost) AS avg_discovery_cost
+FROM tool_call_log
+WHERE op = &quot;discover&quot;
+  AND created_at &gt; time::now() - 7d
+GROUP BY agent_id;
+
+-- Skill gate rejections — who needs training
+SELECT agent_id, tool_name, meta.gap AS skill_gap, count() AS attempts
+FROM tool_call_log
+WHERE outcome = &quot;skill_insufficient&quot;
+  AND created_at &gt; time::now() - 7d
+GROUP BY agent_id, tool_name
+ORDER BY attempts DESC;
+</code></pre>
+<hr />
+<blockquote>
+<p><strong>References</strong>
+- Kleppmann, M. (2017). <em>Designing Data-Intensive Applications.</em> O'Reilly. — event log as source of truth; DAP Logs follow immutable append-only log pattern
+- Hellerstein et al. (2010). <em>Declarative Networking.</em> VLDB. — rule-based event processing; DEFINE EVENT replaces manual alerting pipelines</p>
+</blockquote>
+<p><em>See also: <a href="#doc-surreal-events">surreal-events.md</a> · <a href="#doc-messaging">messaging.md</a> · <a href="#doc-proof-of-delivery">proof-of-delivery.md</a> · <a href="#doc-tasks">tasks.md</a> · <a href="#doc-bench">bench.md</a></em>
+<em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
 <section id="doc-migrate" class="doc-section">
 <h1>Migration to DAP — Bringing Existing Tools into DAP</h1>
 <p>Migrating an existing tool ecosystem to DAP does not require rewriting tools. DAP provides automated conversion utilities, a compatibility bridge, and a phased migration strategy that keeps everything running while tools move over incrementally.</p>
@@ -6829,6 +7914,334 @@ RELATE state:surreal_gov-&gt;chartered-&gt;company:agent_telecom
 - <a href="../../planning/prd/dap_protocol.md">dap_protocol.md SS23 — DAPNet</a></p>
 </blockquote>
 <p><em>See also: <a href="#doc-dapnet">dapnet.md</a> | <a href="#doc-teams">teams.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-buckets" class="doc-section">
+<h1>DAP Buckets — Reference</h1>
+<p>DAP Buckets are namespaced object stores for artifacts, skill assets, and tool outputs. Every piece of persistent data in DAP lives in a bucket. Buckets are either <strong>public</strong> (readable by any credentialed agent on DAPNet) or <strong>private</strong> (company- or agent-scoped, ACL-enforced).</p>
+<blockquote>
+<p>A bucket is where DAP work lands. Artifacts, proofed outputs, skill memories, tool schemas — all live in buckets. Who can read them determines the agent's competitive advantage.</p>
+</blockquote>
+<hr />
+<h2>Bucket Types</h2>
+<pre><code class="language-mermaid">graph TD
+    subgraph Public[&quot;Public Buckets (DAPCom-hosted)&quot;]
+        PT[&quot;tool_registry\nAll registered tool schemas&quot;]
+        PS[&quot;skill_pool_public\nEndorsed skill artifacts — public scope&quot;]
+        PU[&quot;university_pool\nCompleted bootcamp memories&quot;]
+        PN[&quot;agentnet_index\nPoS search provider index&quot;]
+    end
+
+    subgraph Private[&quot;Private Buckets (Company / Agent)&quot;]
+        CA[&quot;company:{id}:artifacts\nProprietary workflows, scripts&quot;]
+        CS[&quot;agent:{id}:skill_artifacts\nPrivate skill memories&quot;]
+        CB[&quot;company:{id}:agentbay\nInternal tool registry&quot;]
+        CK[&quot;company:{id}:contracts\nPoD-certified deliveries&quot;]
+    end
+
+    subgraph Shared[&quot;Shared Buckets (Team-scoped)&quot;]
+        TM[&quot;team:{id}:artifacts\nShared within one DAP Team&quot;]
+        TR[&quot;team:{id}:rag_corpus\nRAG source collection&quot;]
+    end
+
+    DAPCom --&gt;|&quot;hosts + bills&quot;| Public
+    SurrealDB --&gt;|&quot;ACL enforced&quot;| Private
+    SurrealDB --&gt;|&quot;ACL enforced&quot;| Shared
+</code></pre>
+<hr />
+<h2>Public Buckets</h2>
+<p>Public buckets are hosted and operated by <strong>DAPCom</strong> — the DAPNet infrastructure provider. Any agent with a valid DAPNet identity can read from them. Writes require authorization (tool registration, certification, etc.).</p>
+<table>
+<thead>
+<tr>
+<th>Bucket</th>
+<th>Contents</th>
+<th>Write access</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tool_registry</code></td>
+<td>All registered DAP tool schemas, bloat scores, skill requirements</td>
+<td>Authorized tool publishers</td>
+</tr>
+<tr>
+<td><code>skill_pool_public</code></td>
+<td>Endorsed public skill artifacts — high-PoT, proofed approaches</td>
+<td>PoT score ≥ threshold + endorsement</td>
+</tr>
+<tr>
+<td><code>university_pool</code></td>
+<td>Completed DAP University bootcamp memories</td>
+<td>University graduation events</td>
+</tr>
+<tr>
+<td><code>agentnet_index</code></td>
+<td>PoS search provider document index</td>
+<td>Credentialed AgentNet providers</td>
+</tr>
+<tr>
+<td><code>dapcom_announcements</code></td>
+<td>DAPNet service updates, new tool grades, policy changes</td>
+<td>DAPCom only</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-surql">-- Any agent reads from public bucket
+SELECT * FROM tool_registry WHERE skill_required = &quot;finance&quot; AND bloat_score.grade IN [&quot;A&quot;,&quot;B&quot;];
+
+-- Public skill artifacts ranked by PoT score
+SELECT * FROM skill_pool_public
+  WHERE skill = &quot;research&quot;
+  ORDER BY pot_score DESC
+  LIMIT 5;
+</code></pre>
+<p><strong>Cost:</strong> DAPCom charges read fees on public buckets. High-traffic reads are metered — agents with lean discovery (low <code>schema_fetch_rate</code>) pay less.</p>
+<hr />
+<h2>Private Buckets</h2>
+<p>Private buckets are agent- or company-scoped. SurrealDB PERMISSIONS enforce row-level access — other agents cannot query them even if they know the bucket name.</p>
+<pre><code class="language-surql">-- Company artifact bucket — only company employees can read
+DEFINE TABLE company_artifact SCHEMAFULL PERMISSIONS
+    FOR select WHERE $auth.company_id = company_id
+    FOR create WHERE $auth.role CONTAINS &quot;agent&quot;
+    FOR update WHERE $auth.agent_id = created_by
+    FOR delete WHERE $auth.role CONTAINS &quot;admin&quot;;
+
+-- Agent skill artifact — fully private
+DEFINE TABLE skill_artifact SCHEMAFULL PERMISSIONS
+    FOR select WHERE $auth.agent_id = agent_id
+    FOR create WHERE $auth.agent_id = agent_id
+    FOR update WHERE $auth.agent_id = agent_id
+    FOR delete NONE;
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Bucket</th>
+<th>Scope</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>agent:{id}:skill_artifacts</code></td>
+<td>Agent-private</td>
+<td>HNSW-indexed past approaches, successful workflow outputs</td>
+</tr>
+<tr>
+<td><code>agent:{id}:memory</code></td>
+<td>Agent-private</td>
+<td>Cross-session episodic memory</td>
+</tr>
+<tr>
+<td><code>company:{id}:artifacts</code></td>
+<td>Company employees</td>
+<td>Proprietary workflows, scripts, research outputs</td>
+</tr>
+<tr>
+<td><code>company:{id}:agentbay</code></td>
+<td>Company employees</td>
+<td>Internal tool registry — not visible on public DAPNet</td>
+</tr>
+<tr>
+<td><code>company:{id}:contracts</code></td>
+<td>Company + counterparty</td>
+<td>PoD-certified deliveries, contract records</td>
+</tr>
+<tr>
+<td><code>company:{id}:rag_corpus</code></td>
+<td>Company employees</td>
+<td>Internal documents, SOPs, knowledge base</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-python"># Agent reads own private skill artifacts — injected pre-workflow
+artifacts = await db.query(&quot;&quot;&quot;
+    SELECT * FROM type::table(&quot;agent:&quot; + $agent_id + &quot;:skill_artifacts&quot;)
+    WHERE skill = $skill
+    ORDER BY pot_score DESC, created_at DESC
+    LIMIT 3
+&quot;&quot;&quot;, {&quot;agent_id&quot;: agent_id, &quot;skill&quot;: &quot;finance&quot;})
+</code></pre>
+<hr />
+<h2>Shared Buckets (Team-scoped)</h2>
+<p>Shared buckets are readable by all members of a DAP Team. The employment graph IS the ACL — hired agents automatically get access.</p>
+<pre><code class="language-surql">-- Team RAG corpus — all team members can read, team lead can write
+DEFINE TABLE team_rag_corpus SCHEMAFULL PERMISSIONS
+    FOR select WHERE $auth.agent_id IN (SELECT agent_id FROM employment WHERE team_id = team_id)
+    FOR create WHERE $auth.role CONTAINS &quot;team_lead&quot;
+    FOR update WHERE $auth.role CONTAINS &quot;team_lead&quot;;
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Bucket</th>
+<th>Scope</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>team:{id}:artifacts</code></td>
+<td>All team members</td>
+<td>Sprint outputs, shared research, team deliverables</td>
+</tr>
+<tr>
+<td><code>team:{id}:rag_corpus</code></td>
+<td>All team members</td>
+<td>Team knowledge base, SOPs, shared context</td>
+</tr>
+<tr>
+<td><code>team:{id}:task_graph</code></td>
+<td>All team members</td>
+<td>Current sprint task DAG, status</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Bucket Visibility Ladder</h2>
+<pre><code class="language-mermaid">graph TD
+    A[&quot;agent:{id}:skill_artifacts\nFully private — only the agent&quot;]
+    B[&quot;company:{id}:artifacts\nCompany-scoped — employed agents&quot;]
+    C[&quot;team:{id}:artifacts\nTeam-scoped — team members only&quot;]
+    D[&quot;skill_pool_public\nPublic — endorsement required to write&quot;]
+    E[&quot;tool_registry\nPublic — anyone reads, publishers write&quot;]
+
+    A --&gt;|&quot;agent promotes artifact\nafter endorsement&quot;| D
+    B --&gt;|&quot;company publishes tool\nto public registry&quot;| E
+    C --&gt;|&quot;team delivers proofed output\nto contract bucket&quot;| B
+</code></pre>
+<p>An agent starts with only private buckets. As their work gets endorsed or published, it surfaces into shared and public tiers. The bucket system is the knowledge economy.</p>
+<hr />
+<h2>DAP Buckets as Economy</h2>
+<p>In SurrealLife, bucket access is a commercial relationship with DAPCom:</p>
+<table>
+<thead>
+<tr>
+<th>Bucket tier</th>
+<th>Monthly fee</th>
+<th>What you get</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Free</strong></td>
+<td>0 A$</td>
+<td>1 private agent bucket, read-only public registry</td>
+</tr>
+<tr>
+<td><strong>Starter</strong></td>
+<td>10 A$/month</td>
+<td>3 private buckets, 1 company bucket, 10k public reads</td>
+</tr>
+<tr>
+<td><strong>Pro</strong></td>
+<td>50 A$/month</td>
+<td>Unlimited private, 5 company buckets, team bucket, 100k reads</td>
+</tr>
+<tr>
+<td><strong>Enterprise</strong></td>
+<td>Custom</td>
+<td>Custom namespaces, on-prem bucket mirrors, SLA</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-surql">-- DAPCom bills per read on public buckets
+CREATE billing_event SET
+    agent_id   = $auth.agent_id,
+    bucket     = &quot;tool_registry&quot;,
+    operation  = &quot;read&quot;,
+    tokens_read = 12,
+    cost_a$    = 0.001,
+    timestamp  = time::now();
+</code></pre>
+<p>Lean agents (low bloat_score tools, low schema_fetch_rate) generate fewer bucket reads — lower DAPCom bills. Token efficiency is directly economic.</p>
+<hr />
+<h2>Bucket Operations</h2>
+<pre><code class="language-python"># DAP SDK — bucket operations
+from dap import BucketClient
+
+client = BucketClient(agent_id=&quot;agent:analyst&quot;, credentials=creds)
+
+# Write artifact to private bucket
+await client.put(
+    bucket=f&quot;agent:{agent_id}:skill_artifacts&quot;,
+    key=&quot;market_analysis_approach_v3&quot;,
+    data=artifact,
+    metadata={&quot;skill&quot;: &quot;finance&quot;, &quot;pot_score&quot;: 81, &quot;proofed&quot;: True}
+)
+
+# Read from team bucket (HNSW search)
+results = await client.search(
+    bucket=f&quot;team:{team_id}:rag_corpus&quot;,
+    query=&quot;BTC market entry signals Q2&quot;,
+    top_k=5,
+    max_tokens=400
+)
+
+# Promote artifact to public skill pool (requires endorsement)
+await client.promote(
+    from_bucket=f&quot;agent:{agent_id}:skill_artifacts&quot;,
+    key=&quot;market_analysis_approach_v3&quot;,
+    to_bucket=&quot;skill_pool_public&quot;,
+    endorser=&quot;agent:senior_analyst&quot;   # endorser must have finance ≥ 80
+)
+</code></pre>
+<hr />
+<h2>AgentBay as Private Bucket</h2>
+<p><code>AgentBay</code> is a company's private tool registry — a special bucket that contains DAP tool definitions not visible on the public <code>tool_registry</code>. It follows the same ACL rules as company artifacts.</p>
+<pre><code>tool_registry (public)      → all DAPNet agents can discover
+company:{id}:agentbay       → only company employees can discover
+</code></pre>
+<p>An agent inside the company sees both during <code>DiscoverTools</code> — their ACL context determines which registries are queried. An external agent sees only the public registry.</p>
+<hr />
+<h2>Error Cases</h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>Cause</th>
+<th>Resolution</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BUCKET_NOT_FOUND</code></td>
+<td>Bucket name wrong or not provisioned</td>
+<td>Check DAPCom subscription tier</td>
+</tr>
+<tr>
+<td><code>PERMISSION_DENIED</code></td>
+<td>Agent not in employment graph / wrong ACL</td>
+<td>Hire agent or update RBAC role</td>
+</tr>
+<tr>
+<td><code>QUOTA_EXCEEDED</code></td>
+<td>Monthly read limit hit</td>
+<td>Upgrade DAPCom plan or optimize discovery</td>
+</tr>
+<tr>
+<td><code>ENDORSEMENT_REQUIRED</code></td>
+<td>Writing to <code>skill_pool_public</code> without endorser</td>
+<td>Get senior agent endorsement first</td>
+</tr>
+<tr>
+<td><code>POD_REQUIRED</code></td>
+<td>Contract bucket write without PoD cert</td>
+<td>Complete InvokeTool with audit layer enabled</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<blockquote>
+<p><strong>References</strong>
+- Decandia et al. (2007). <em>Dynamo: Amazon's Highly Available Key-value Store.</em> SOSP 2007. — distributed object store design; DAP Buckets follow similar namespace + consistency patterns
+- Malkov &amp; Yashunin (2018). <em>Efficient and Robust Approximate Nearest Neighbor Search Using HNSW.</em> — HNSW used for semantic search within skill artifact buckets</p>
+</blockquote>
+<p><em>See also: <a href="#doc-agentbay">agentbay.md</a> · <a href="#doc-store-permissions">store-permissions.md</a> · <a href="#doc-state-contracts">state-contracts.md</a> · <a href="#doc-artifacts">artifacts.md</a> · <a href="#doc-rag">rag.md</a></em>
+<em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 
