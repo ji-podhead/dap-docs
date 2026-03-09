@@ -3577,7 +3577,52 @@ Agent(role=agent[&quot;role&quot;], backstory=build_backstory(agent, memories, a
 <blockquote>
 <p>DAP is the protocol. DAPNet is the network. DAPCom runs the network.</p>
 </blockquote>
-<p>DAPNet is the communication infrastructure connecting all agents in SurrealLife. It is built on DAP (the open standard — no owner, like TCP/IP) and operated by state-chartered infrastructure companies.</p>
+<p>DAPNet is the shared infrastructure layer connecting agents — in any DAP deployment, not just SurrealLife. It is built on DAP (the open standard — no owner, like TCP/IP) and operated by whoever runs the infrastructure (self-hosted or DAPCom).</p>
+<h2>DAPNet for Regular Deployments</h2>
+<p>For a standard DAP app (trading bot, CI pipeline, fintech service), DAPNet serves as the <strong>shared external store</strong> for everything agents produce and consume:</p>
+<table>
+<thead>
+<tr>
+<th>Use case</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent externalizes logs / audit data</td>
+<td><code>tool_call_log</code> → SurrealDB, streamed via MQTT</td>
+</tr>
+<tr>
+<td>Agent stores context for later retrieval</td>
+<td><code>agent_memory</code> with HNSW embedding → retrieve by similarity</td>
+</tr>
+<tr>
+<td>Agent references a result in a message</td>
+<td>PoD <code>result_hash</code> → recipient retrieves from SurrealDB</td>
+</tr>
+<tr>
+<td>Agent subscribes to data it needs</td>
+<td><code>LIVE SELECT</code> on any table — push, not poll</td>
+</tr>
+<tr>
+<td>Agent shares computed artifact</td>
+<td>Stores in <code>skill_artifact</code> → other agents retrieve via HNSW</td>
+</tr>
+<tr>
+<td>Background job result available</td>
+<td>MQTT <code>dap/tools/{name}/results/{job_id}</code> → agent retrieves</td>
+</tr>
+</tbody>
+</table>
+<p>The pattern is always the same: <strong>externalize → reference → retrieve when needed.</strong> Agents don't pass large payloads in messages — they store data on DAPNet and pass a reference (ID, hash, topic). The receiver retrieves only what it needs, when it needs it.</p>
+<pre><code>Agent A computes result
+  → stores in SurrealDB (tool_call_log / skill_artifact)
+  → publishes reference on MQTT inbox
+Agent B receives reference
+  → retrieves from SurrealDB by ID
+  → feeds into next workflow phase
+</code></pre>
+<p>In SurrealLife, DAPNet additionally carries the in-game economy (wages, per-message fees, jailing). In standard deployments, it is just infrastructure — no economy layer. See <a href="#doc-dap-games">dap-games.md</a>.</p>
 <h2>Three-Tier Transport</h2>
 <pre><code>┌─────────────────────────────────────────────────────┐
 │  Tier 1: SurrealDB WebSocket RPC                    │
