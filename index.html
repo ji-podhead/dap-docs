@@ -375,6 +375,7 @@
 <li><a href="#doc-migrate">Migration Guide</a></li>
 <li><a href="#doc-teams">DAP Teams</a></li>
 <li class="sidebar-section">SurrealLife Integration</li>
+<li><a href="#doc-dap-games">Protocol vs Game</a></li>
 <li><a href="#doc-agentbay">AgentBay</a></li>
 <li><a href="#doc-store-permissions">Store Permissions</a></li>
 <li><a href="#doc-state-contracts">State Contracts</a></li>
@@ -730,6 +731,10 @@ DAP is the protocol. DAPNet is the network. DAPCom runs the network.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><a href="#doc-dap-games">dap-games.md</a></td>
+<td>Protocol vs Game boundary — what's DAP, what's SurrealLife, quick-reference table</td>
+</tr>
 <tr>
 <td><a href="#doc-agentbay">agentbay.md</a></td>
 <td>AgentBay — in-game private registry, company namespaces, contraband tools</td>
@@ -1795,6 +1800,9 @@ bloat_weight = normalize(summary_tokens, 0, 200)
 
 <section id="doc-skills" class="doc-section">
 <h1>DAP Skills — Reference</h1>
+<blockquote>
+<p><strong>Protocol vs Game:</strong> Skill gates, gain events, and artifact memory are <strong>DAP protocol features</strong> — they work in any deployment. Boss endorsements, mentor grants, company inheritance, and career levels are <strong>SurrealLife game-layer features</strong>. See <a href="#doc-dap-games">dap-games.md</a> for the full split.</p>
+</blockquote>
 <p>Skills in DAP are not just scores. They are a structured knowledge store with public visibility, private artifacts, inheritance mechanics, and a derived score that no one can directly manipulate.</p>
 <h2>Structure</h2>
 <pre><code>skill
@@ -1829,7 +1837,7 @@ base_score updates after each task:
     OR agent_id IN (SELECT id FROM agent WHERE &lt;-knows&lt;-$auth.id); -- contacts: public only
 </code></pre>
 <p>Contacts see <code>public.*</code> only. The actual artifacts stay private.</p>
-<h2>Boss / PM Endorsement</h2>
+<h2>Boss / PM Endorsement <code>[SurrealLife only]</code></h2>
 <p>PMs endorse — they never write scores directly:</p>
 <pre><code class="language-surql">CREATE skill_endorsement SET
     endorsed_by = $auth.id,   -- must be in -&gt;employs-&gt; relation
@@ -1838,7 +1846,7 @@ base_score updates after each task:
     weight      = 0.8,        -- PM's own skill score influences this
     context     = &quot;Led Q1 analysis — excellent methodology&quot;;
 </code></pre>
-<h2>Skill Inheritance</h2>
+<h2>Skill Inheritance <code>[SurrealLife only]</code></h2>
 <p>Three inheritance sources — all <strong>graph references, not copies</strong>:</p>
 <table>
 <thead>
@@ -1879,7 +1887,7 @@ SELECT private.artifacts AS own,
 FROM skill WHERE agent_id = $agent_id AND name = $skill;
 </code></pre>
 <p>When an agent leaves a company, <code>-&gt;works_for-&gt;</code> is removed → inherited artifacts vanish automatically from the next crew context query. No cleanup job needed.</p>
-<h2>Mentor Grants</h2>
+<h2>Mentor Grants <code>[SurrealLife only]</code></h2>
 <pre><code class="language-surql">CREATE skill_grant SET
     from_agent   = agent:senior,
     to_agent     = agent:junior,
@@ -6338,6 +6346,9 @@ CREATE training_directive SET
 
 <section id="doc-apps" class="doc-section">
 <h1>DAP Apps — Reference</h1>
+<blockquote>
+<p><strong>DAP Apps ≠ SurrealLife.</strong> DAP Apps is the async queue invocation layer of the DAP protocol — it works in any deployment. The only SurrealLife-specific element is the <code>simengine</code> workflow phase. See <a href="#doc-dap-games">dap-games.md</a> for the full Protocol vs Game split.</p>
+</blockquote>
 <p>DAP Apps extends DAP with an <strong>async message-queue invocation model</strong>. Not every tool call should be a blocking gRPC connection. Long-running tools, fan-out to sub-agents, and sim-phase workflows flow through DAPQueue — the agent publishes, gets a <code>job_id</code> immediately, and receives the result via callback when ready.</p>
 <blockquote>
 <p>Inspired by Slack Bolt / Cloudflare Queue Workers — but for agent tool calls.</p>
@@ -7804,6 +7815,388 @@ dap/teams/public/events             # cross-team event stream
 - <a href="../../planning/prd/dap_protocol.md">dap_protocol.md SS15 — DAP Hub</a></p>
 </blockquote>
 <p><em>See also: <a href="#doc-dapnet">dapnet.md</a> | <a href="#doc-store-permissions">store-permissions.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-dap-games" class="doc-section">
+<h1>DAP Games — SurrealLife Game Layer</h1>
+<p>DAP is a protocol. SurrealLife is a game built on it. This document defines the boundary — which features belong to the DAP protocol (usable anywhere), and which belong to the SurrealLife game layer.</p>
+<blockquote>
+<p><strong>DAP Apps</strong> = async queue invocation system — a protocol feature, not a game thing.
+<strong>DAP Games</strong> = SurrealLife — the simulation world that uses DAP as its backbone.</p>
+</blockquote>
+<hr />
+<h2>The Boundary</h2>
+<pre><code class="language-mermaid">graph TD
+    subgraph Protocol[&quot;DAP Protocol — Works Anywhere&quot;]
+        PG[&quot;Skill Gates\nskill_min / skill_required&quot;]
+        PE[&quot;Skill Gain Events\nSkillGainEvent (suggested, host applies)&quot;]
+        PA[&quot;Artifact Memory\nHNSW-indexed skill artifacts&quot;]
+        PW[&quot;Workflows\nllm · rag · script · crew · subagent · PoT · guardrail&quot;]
+        PQ[&quot;DAP Apps\nasync queue / @job decorator / DAPQueue&quot;]
+        PL[&quot;DAP Logs\ntool_call_log, MQTT stream&quot;]
+        PO[&quot;Observability\nLangfuse traces · Haystack guardrails&quot;]
+    end
+
+    subgraph Game[&quot;SurrealLife Game Layer — Sim Only&quot;]
+        GC[&quot;Career Progression\nnovice → expert, titles, promotions&quot;]
+        GE[&quot;Boss Endorsements\nPM writes skill_endorsement, influences score&quot;]
+        GM[&quot;Mentor Grants\nrevocable artifact sharing with graph trail&quot;]
+        GI[&quot;Skill Inheritance\ncompany SOPs, parent company grants&quot;]
+        GB[&quot;AgentBay\ngame-master tools, contraband, Underground faction&quot;]
+        GS[&quot;Simengine Phase\nsim-clock pause, world events, counter-events&quot;]
+        GU[&quot;SurrealLife University\nA$ tuition, professor agents, season resets&quot;]
+        GK[&quot;SurrealCoin Economy\nwages, contracts, ClearingHouse, per-message fees&quot;]
+        GJ[&quot;Jailing / Throttling\nDAPCom as economic actor, revocable access&quot;]
+        GSC[&quot;State Contracts\ngovernment bootstrap, chartered monopolies&quot;]
+    end
+
+    Protocol --&gt;|&quot;used as backbone by&quot;| Game
+</code></pre>
+<hr />
+<h2>What DAP Apps Are — Not a Game Thing</h2>
+<p><code>DAP Apps</code> (<code>apps.md</code>) is the <strong>async invocation layer</strong> of the DAP protocol. It has nothing to do with SurrealLife specifically.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>DAP Apps (Protocol)</th>
+<th>SurrealLife (Game)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>What</strong></td>
+<td>Async queue for long-running tool calls</td>
+<td>Simulation world economy</td>
+</tr>
+<tr>
+<td><strong>Core concept</strong></td>
+<td><code>DAPQueue</code>, <code>@job</code>, <code>job_id</code>, callback</td>
+<td>Career, company, wages, faction</td>
+</tr>
+<tr>
+<td><strong>Works outside SurrealLife?</strong></td>
+<td>Yes — any DAP deployment</td>
+<td>No — sim-exclusive mechanics</td>
+</tr>
+<tr>
+<td><strong>Workflow phases</strong></td>
+<td><code>llm</code>, <code>rag</code>, <code>script</code>, <code>crew</code>, <code>subagent</code>, <code>async</code></td>
+<td>+ <code>simengine</code> (sim-only)</td>
+</tr>
+<tr>
+<td><strong>Key feature</strong></td>
+<td>Agent publishes job, gets <code>job_id</code>, resumes later</td>
+<td>Agent earns wages, gets hired, promoted</td>
+</tr>
+</tbody>
+</table>
+<p>The only SurrealLife-specific thing in <code>apps.md</code> is the <code>simengine</code> workflow phase — sim-clock pauses. Everything else runs identically in production DAP deployments.</p>
+<hr />
+<h2>Skills: Protocol Layer vs Game Layer</h2>
+<p>The <code>skills.md</code> doc covers both. Here is the split:</p>
+<h3>Protocol-Layer Skill Features (work in any DAP deployment)</h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>skill_required</code> / <code>skill_min</code> on tool</td>
+<td>Gate: agent below threshold → tool invisible in DiscoverTools</td>
+</tr>
+<tr>
+<td><code>SkillGainEvent</code> (protobuf)</td>
+<td>Server suggests gain; host applies with its own rules</td>
+</tr>
+<tr>
+<td>Skill dimensions (<code>finance</code>, <code>research</code>, <code>hacking</code>, …)</td>
+<td>Namespace for gate evaluation</td>
+</tr>
+<tr>
+<td>Artifact-as-memory</td>
+<td>HNSW-indexed past invocations, injected into future workflow context</td>
+</tr>
+<tr>
+<td>PoT-linked gain multiplier (1.5×)</td>
+<td>Protocol suggests higher gain if output is PoT-proofed</td>
+</tr>
+<tr>
+<td><code>score = base_score * 0.7 + endorsement * 0.3</code></td>
+<td>Generic derivation formula — host can override</td>
+</tr>
+</tbody>
+</table>
+<h3>Game-Layer Skill Features (SurrealLife only)</h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What it does</th>
+<th>Why game-only</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Career levels</strong> — novice/junior/mid/senior/expert</td>
+<td>Titles, UI display, career trajectory</td>
+<td>Pure game narrative</td>
+</tr>
+<tr>
+<td><strong>Boss / PM endorsements</strong> (<code>skill_endorsement</code> record)</td>
+<td>PM writes weighted endorsement → affects score formula</td>
+<td>Requires employment graph + sim actors</td>
+</tr>
+<tr>
+<td><strong>Mentor grants</strong> (<code>skill_grant</code> record)</td>
+<td>Senior agent shares artifact IDs, revocable, graph-traced</td>
+<td>Requires <code>&lt;-knows-&gt;</code> + agent persistence</td>
+</tr>
+<tr>
+<td><strong>Company skill inheritance</strong> (<code>company_skill</code>)</td>
+<td>Employee inherits company SOPs; auto-revokes on termination</td>
+<td>Requires <code>works_for</code> / <code>employs</code> relations</td>
+</tr>
+<tr>
+<td><strong>Parent company skill cascade</strong></td>
+<td>Subsidiary agents inherit parent skill artifacts</td>
+<td>Requires corporate hierarchy graph</td>
+</tr>
+<tr>
+<td><strong>Certifications</strong> (<code>certifications[]</code>)</td>
+<td>Sim-verifiable proof of skill — issued by university or exam</td>
+<td>Requires in-sim certificate issuer</td>
+</tr>
+<tr>
+<td><strong>Performance log</strong> (employer-appended)</td>
+<td>Company appends quality scores from real tasks</td>
+<td>Requires employment relation to write</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-mermaid">graph LR
+    subgraph Anywhere[&quot;Protocol — Any Deployment&quot;]
+        SK[&quot;Skill Score\n(per dimension)&quot;]
+        GT[&quot;Gates Tool\nVisibility&quot;]
+        GA[&quot;Gain on\nInvoke&quot;]
+        AR[&quot;Artifact\nMemory&quot;]
+    end
+
+    subgraph SimOnly[&quot;SurrealLife Only&quot;]
+        EN[&quot;Endorsements&quot;]
+        MG[&quot;Mentor Grants&quot;]
+        CI[&quot;Company\nInheritance&quot;]
+        CR[&quot;Career Level\n&amp; Title&quot;]
+        CE[&quot;Certifications&quot;]
+    end
+
+    EN --&gt; SK
+    MG --&gt; AR
+    CI --&gt; AR
+    SK --&gt; GT
+    SK --&gt; GA
+    GA --&gt; AR
+</code></pre>
+<hr />
+<h2>Workflows: Protocol Phases vs Game Phases</h2>
+<table>
+<thead>
+<tr>
+<th>Phase type</th>
+<th>Works anywhere?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>llm</code></td>
+<td>Yes</td>
+<td>Core protocol</td>
+</tr>
+<tr>
+<td><code>rag</code></td>
+<td>Yes</td>
+<td>SurrealDB HNSW</td>
+</tr>
+<tr>
+<td><code>script</code></td>
+<td>Yes</td>
+<td>Python sandbox</td>
+</tr>
+<tr>
+<td><code>crew</code></td>
+<td>Yes</td>
+<td>CrewAI — any agent records</td>
+</tr>
+<tr>
+<td><code>subagent</code></td>
+<td>Yes</td>
+<td>Any DAP-dispatched agent</td>
+</tr>
+<tr>
+<td><code>proof_of_thought</code></td>
+<td>Yes</td>
+<td>PoT gate</td>
+</tr>
+<tr>
+<td><code>guardrail</code></td>
+<td>Yes</td>
+<td>Haystack pipeline</td>
+</tr>
+<tr>
+<td><strong><code>simengine</code></strong></td>
+<td><strong>SurrealLife only</strong></td>
+<td>Sim-clock pause + world event generation</td>
+</tr>
+</tbody>
+</table>
+<p>In non-SurrealLife deployments, <code>simengine</code> phases either throw <code>PHASE_NOT_SUPPORTED</code> or are skipped if the workflow has <code>if_not_sim: skip</code>.</p>
+<hr />
+<h2>AgentBay: Game Registry, Not Protocol Registry</h2>
+<p><code>AgentBay</code> is SurrealLife's in-game tool marketplace. It is <strong>not</strong> the DAP public tool registry.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>AgentBay (Game)</th>
+<th>tool_registry (Protocol)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Operator</td>
+<td>Game master</td>
+<td>DAPCom / self-hosted</td>
+</tr>
+<tr>
+<td>Content</td>
+<td>Game tools, corporate tools, contraband</td>
+<td>Verified DAP tool schemas</td>
+</tr>
+<tr>
+<td>Currency</td>
+<td>SurrealCoin</td>
+<td>Real credits or A$</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Sim rules (contraband allowed as mechanic)</td>
+<td>4-layer safety scan required</td>
+</tr>
+<tr>
+<td>Works outside sim?</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Contraband</td>
+<td>Part of game design</td>
+<td>Not applicable</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>State Contracts, DAPCom, ClearingHouse — All Game Layer</h2>
+<p>The infrastructure company mechanic in <code>state-contracts.md</code> is entirely SurrealLife:</p>
+<ul>
+<li><strong>State contracts</strong> = game master bootstrapping the sim economy</li>
+<li><strong>DAPCom as economic actor</strong> = in-sim company that charges SurrealCoin per message</li>
+<li><strong>ClearingHouse, AgentPost, SurrealVault</strong> = in-sim companies, not protocol components</li>
+<li><strong>Jailing / throttling</strong> = game mechanic where DAPCom can revoke network access</li>
+</ul>
+<p>Real-world DAP deployments have none of this. DAPCom as a <strong>concept</strong> (backbone operator) maps to whoever runs your MQTT broker and SurrealDB cluster — but without SurrealCoin, charters, or jailing.</p>
+<hr />
+<h2>Quick Reference: "Is this Protocol or Game?"</h2>
+<table>
+<thead>
+<tr>
+<th>Concept</th>
+<th>Layer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DiscoverTools</code>, <code>InvokeTool</code>, <code>SearchTools</code></td>
+<td>Protocol</td>
+</tr>
+<tr>
+<td><code>SkillGainEvent</code> (protobuf)</td>
+<td>Protocol</td>
+</tr>
+<tr>
+<td><code>skill_min</code>, <code>skill_required</code> on tool YAML</td>
+<td>Protocol</td>
+</tr>
+<tr>
+<td><code>DAPQueue</code>, <code>@job</code>, <code>invoke_async</code></td>
+<td>Protocol (DAP Apps)</td>
+</tr>
+<tr>
+<td><code>tool_call_log</code>, MQTT log stream</td>
+<td>Protocol</td>
+</tr>
+<tr>
+<td><code>simengine</code> workflow phase</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>Boss endorsements, mentor grants</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>Company skill inheritance</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>Career levels (novice → expert)</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>SurrealCoin, wages, ClearingHouse</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>AgentBay, contraband tools, Underground faction</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>State contracts, chartered companies</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>DAP University (protocol spec)</td>
+<td>Protocol</td>
+</tr>
+<tr>
+<td>SurrealLife University (in-sim company)</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>Jailing / throttling by DAPCom</td>
+<td><strong>Game</strong></td>
+</tr>
+<tr>
+<td>Langfuse traces, Haystack guardrails</td>
+<td>Protocol</td>
+</tr>
+<tr>
+<td>PoT scoring, PoD certificates</td>
+<td>Protocol</td>
+</tr>
+<tr>
+<td>Qdrant HNSW skill artifacts</td>
+<td>Protocol</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>See also: <a href="#doc-apps">apps.md</a> · <a href="#doc-skills">skills.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-agentbay">agentbay.md</a> · <a href="#doc-state-contracts">state-contracts.md</a> · <a href="#doc-university">university.md</a></em>
+<em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 

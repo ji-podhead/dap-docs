@@ -153,6 +153,7 @@ This document covers the **DAP protocol layer**. For the other projects:
 
 | Doc | What it covers |
 |---|---|
+| [dap-games.md](dap-games.md) | Protocol vs Game boundary — what's DAP, what's SurrealLife, quick-reference table |
 | [agentbay.md](agentbay.md) | AgentBay — in-game private registry, company namespaces, contraband tools |
 | [store-permissions.md](store-permissions.md) | Agent Store access levels: NONE/READ_ONLY/GUARDED/SCOPED/FULL |
 | [state-contracts.md](state-contracts.md) | DAPNet infrastructure companies — DAPCom, DataGrid, VectorCorp |
