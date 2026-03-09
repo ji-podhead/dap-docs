@@ -25,15 +25,15 @@ Returns tools the agent is permitted to call, ranked by context relevance. Calle
 
 **Flow:**
 
-```
-DiscoverRequest(agent_id, context, max_tools)
-  │
-  1. Casbin: list policies where agent_id passes ACL for /tools/*
-  2. Qdrant: embed(context) → filtered search over tool_registry
-  3. Skill filter: agent's skill score >= tool's skill_min
-  4. Bloat-weighted ranking (see bloat-score.md)
-  5. Take top max_tools
-  6. Return ToolSummary list (no handler code, no implementation details)
+```mermaid
+graph TD
+    A["DiscoverRequest(agent_id, context, max_tools)"] --> B["1. Casbin: list policies where agent_id passes ACL for /tools/*"]
+    B --> C["2. Qdrant: embed(context) → filtered search over tool_registry"]
+    C --> D["3. Skill filter: agent skill score >= tool skill_min"]
+    D --> E[4. Bloat-weighted ranking]
+    E --> F[5. Take top max_tools]
+    F --> G[6. Return ToolSummary list]
+    G --> H[No handler code or implementation details exposed]
 ```
 
 The agent's LLM receives clean, context-ranked summaries. Handler code is never exposed.
@@ -46,12 +46,11 @@ On-demand semantic search for tools the agent doesn't yet know about.
 
 **Flow:**
 
-```
-SearchRequest(agent_id, query, top_k)
-  │
-  1. Casbin + skill filter (same as DiscoverTools)
-  2. Qdrant: embed(query) → HNSW cosine similarity search → filtered results
-  3. Return top_k as ToolSummary list
+```mermaid
+graph TD
+    A["SearchRequest(agent_id, query, top_k)"] --> B[1. Casbin + skill filter]
+    B --> C["2. Qdrant: embed(query) → HNSW cosine similarity → filtered results"]
+    C --> D[3. Return top_k as ToolSummary list]
 ```
 
 Example: "I need to file a legal complaint" → returns `file_lawsuit`, `create_dispute_record`, `notify_agentcourt`.

@@ -25,10 +25,15 @@ PoT is a **quality scoring phase** in any DAP skill workflow. It evaluates reaso
 
 ## Scoring Formula
 
-```
-PoT Score = (Evidence × 0.40) + (Reasoning × 0.30) + (Conclusion × 0.30)
-
-Final Score = (PoT × 0.50) + (Evidence Quality × 0.20) + (Efficiency × 0.30)
+```mermaid
+graph LR
+    EV["Evidence x 0.40"] --> POT[PoT Score]
+    RE["Reasoning x 0.30"] --> POT
+    CO["Conclusion x 0.30"] --> POT
+    POT2["PoT x 0.50"] --> FS[Final Score]
+    EQ["Evidence Quality x 0.20"] --> FS
+    EF["Efficiency x 0.30"] --> FS
+    POT --> POT2
 ```
 
 - **Evidence**: relevance + source quality + coverage
@@ -58,15 +63,14 @@ artifact:
 
 ## Retry Logic
 
-```
-Phase analyze → score 58 < threshold 65
-  → retry phase: analyze (attempt 2)
-  → score 71 ≥ threshold
-  → continue to next phase
-
-Phase analyze → 2 retries exhausted, still below threshold
-  → workflow fails with PoT_THRESHOLD_NOT_MET error
-  → partial result returned with pot_score: 52
+```mermaid
+graph TD
+    A[Phase: analyze] --> B{score >= threshold 65?}
+    B -->|"Attempt 1: score 58 < 65"| C[retry: analyze]
+    C --> B
+    B -->|"Attempt 2: score 71 >= 65"| D[continue to next phase]
+    B -->|2 retries exhausted still below threshold| E[workflow fails: PoT_THRESHOLD_NOT_MET]
+    E --> F["partial result returned with pot_score: 52"]
 ```
 
 ## In SurrealLife — Contract Binding

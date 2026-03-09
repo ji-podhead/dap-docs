@@ -29,18 +29,20 @@ These are two different layers — same relationship as DAP (protocol) vs DAPNet
 Mentor grants share artifact IDs — the student gets a reference to the mentor's work.
 **University courses run the student through challenges** — the student generates their own memories from the experience.
 
-```
-Mentor grant:         agent:senior --> skill_grant --> agent:junior
-  → junior gets: artifact_ids = ["port_scan_v2.py"]
-  → effect: junior has access to the file
-  → learning: zero — they didn't do it themselves
+```mermaid
+graph TD
+    subgraph MentorGrant["Mentor Grant (shallow)"]
+        MS["agent:senior"] -->|skill_grant| MJ["agent:junior"]
+        MJ --> MA["gets artifact_ids = ['port_scan_v2.py']"]
+        MA --> ML["learning: zero — didn't do it themselves"]
+    end
 
-University course:    agent:junior enrolls in "Hacking: Network Recon"
-  → challenge 1: prove the open ports on this simulated host (PoS-backed)
-  → challenge 2: write a scan script, PoT score ≥ 70 to pass
-  → completion: junior's OWN memory written: "found open ports via TCP SYN scan → succeeded"
-  → effect: junior has a real experience, not just a file reference
-  → learning: actual — HNSW retrieval will surface this memory in future similar tasks
+    subgraph UniCourse["University Course (deep)"]
+        UE["agent:junior enrolls in 'Hacking: Network Recon'"] --> C1["Challenge 1: prove open ports (PoS-backed)"]
+        C1 --> C2["Challenge 2: write scan script, PoT >= 70"]
+        C2 --> UW["junior's OWN memory written: 'found open ports via TCP SYN scan'"]
+        UW --> UL["learning: actual — HNSW surfaces this in future tasks"]
+    end
 ```
 
 ---
@@ -175,12 +177,15 @@ DEFINE INDEX univ_mem_vec ON university_memory
 
 At agent activation, the runtime includes the top-K relevant university pool entries alongside private memories — **even if the agent didn't personally complete that course**. Agents who attended a university inherit the collective experience of all graduates in that faculty.
 
-```
-Agent activates for a hacking task:
-  → Load private memories (agent's own experiences)      →  top 5
-  → Load company pool (employer's accumulated knowledge) →  top 3
-  → Load university pool (all hacking faculty graduates) →  top 2
-  Total: 10 high-signal memories injected, zero noise
+```mermaid
+graph TD
+    A[Agent activates for hacking task] --> B[Load private memories: top 5]
+    A --> C[Load company pool: top 3]
+    A --> D[Load university pool: top 2]
+    B --> E[10 high-signal memories injected]
+    C --> E
+    D --> E
+    E --> F[zero noise context]
 ```
 
 ---
@@ -313,11 +318,12 @@ This lets the PM make a data-driven decision: send to university (formal) or do 
 
 University exams use `type: proof` (PoS-backed) — the student must actually search for the answer, not recall it from training data:
 
-```
-Exam thesis: "What is the current CVE score for OpenSSL 3.1.2?"
-  → Z3 verifies: was this answer in the agent's prior knowledge?
-    → If SAT (known beforehand) → CHEATING → exam fails
-    → If UNSAT (had to search) → search path verified → VERIFIED
+```mermaid
+graph TD
+    A["Exam thesis: 'What is the current CVE score for OpenSSL 3.1.2?'"] --> B["Z3: can thesis be SAT from prior_knowledge alone?"]
+    B -->|SAT known beforehand| C[CHEATING — exam fails]
+    B -->|UNSAT had to search| D[Search path verified — VERIFIED]
+    D --> E[Exam passes]
 ```
 
 An agent cannot pass a DAP University exam by knowing the answer in advance. They must demonstrate the ability to find, evaluate, and reason about evidence — the same process that produces trust-weighted outputs in production.

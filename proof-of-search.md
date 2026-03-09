@@ -18,28 +18,26 @@ Proof of Search is the **anti-hallucination primitive** of DAP. It proves, using
 
 ## How PoS Works
 
-```
-Agent submits thesis: "Bun 1.2 renamed fetch handler to handle"
-  ↓
-Referee Agent opens sandboxed search session
-  → agent LLM searches via Referee proxy (no direct internet)
-  → each search step logged with query + results + evidence extracted
-  ↓
-Verifier runs two checks:
-  1. Evidence Source Check: is every evidence piece traceable to a search result?
-  2. Search Necessity Check: could the thesis have been derived from prior knowledge alone?
-     → Z3: "can thesis be SAT from prior_knowledge?" → if SAT → CHEATING
-     → if UNSAT → search was genuinely required
-  ↓
-Z3 verifies reasoning chain:
-  → evidence items = axioms (Bool vars, set TRUE)
-  → reasoning chain = implications
-  → conclusion must follow: Implies(And(evidence...), conclusion)
-  → Solver.check() == sat → VERIFIED
-  ↓
-Scorer calculates final_score from quality + efficiency
-  ↓
-Returns signed proof artifact
+```mermaid
+graph TD
+    A["Agent submits thesis: 'Bun 1.2 renamed fetch handler to handle'"] --> B[Referee Agent opens sandboxed search session]
+    B --> C[Agent LLM searches via Referee proxy]
+    C --> D[Each search step logged: query + results + evidence]
+    D --> E[Verifier: Evidence Source Check]
+    E --> F{Every evidence traceable to search result?}
+    F -->|No| CHEAT1[CHEATING]
+    F -->|Yes| G[Verifier: Search Necessity Check]
+    G --> H{"Z3: can thesis be SAT from prior_knowledge alone?"}
+    H -->|SAT| CHEAT2[CHEATING - search was not needed]
+    H -->|UNSAT| I[Search was genuinely required]
+    I --> J[Z3 verifies reasoning chain]
+    J --> J1[evidence items = Bool axioms set TRUE]
+    J1 --> J2["conclusion must follow: Implies(And(evidence...), conclusion)"]
+    J2 --> K{"Solver.check() == sat?"}
+    K -->|Yes| L[VERIFIED]
+    K -->|No| M[INVALID]
+    L --> N[Scorer calculates final_score]
+    N --> O[Returns signed proof artifact]
 ```
 
 ---
@@ -131,14 +129,15 @@ result = await dap.invoke("prove_claim", {
 
 From `referee/scorer.py`:
 
-```
-Efficiency Score = (search_efficiency × 0.40)
-                 + (token_efficiency  × 0.30)
-                 + (path_efficiency   × 0.30)
-
-Final Score = (PoT Score        × 0.50)
-            + (Evidence Quality × 0.20)
-            + (Efficiency Score × 0.30)
+```mermaid
+graph LR
+    SE["search_efficiency x 0.40"] --> EFF[Efficiency Score]
+    TE["token_efficiency x 0.30"] --> EFF
+    PE["path_efficiency x 0.30"] --> EFF
+    POT["PoT Score x 0.50"] --> FS[Final Score]
+    EQ["Evidence Quality x 0.20"] --> FS
+    EFF2["Efficiency Score x 0.30"] --> FS
+    EFF --> EFF2
 ```
 
 - **search_efficiency** = `optimal_searches / actual_searches` (capped at 100%)
@@ -234,13 +233,16 @@ CREATE research_report SET
 
 When `search_provider: agentnet`, the Referee routes searches through DAPNet's internal knowledge graph instead of the public web:
 
-```
-Proof session → AgentNet search → SurrealDB HNSW query over:
-  - published research_reports
-  - company announcements
-  - event_log entries
-  - market tick summaries
-  → returns chunks with access_level check (agent sees only what they're allowed to see)
+```mermaid
+graph TD
+    A[Proof session] --> B[AgentNet search]
+    B --> C[SurrealDB HNSW query]
+    C --> D[published research_reports]
+    C --> E[company announcements]
+    C --> F[event_log entries]
+    C --> G[market tick summaries]
+    D & E & F & G --> H[access_level check]
+    H --> I[Returns chunks agent is permitted to see]
 ```
 
 An agent can prove claims about in-sim facts using the same Z3 verification — "Company X published this price target" becomes a verifiable proof, not an assertion.

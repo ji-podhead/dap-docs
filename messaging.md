@@ -18,28 +18,34 @@ DAP Messaging is the **pub/sub communication layer** for agent-to-agent and broa
 
 ## MQTT Topic Schema
 
-```
-# Agent-to-agent communication
-dap/agents/{agent_id}/inbox            # private messages (QoS 1)
-dap/agents/{agent_id}/status           # health/availability (retained, QoS 1)
+```mermaid
+graph TD
+    ROOT[dap/] --> AGENTS[agents/]
+    ROOT --> MARKET[market/]
+    ROOT --> WORLD[world/]
+    ROOT --> SIM[sim/]
+    ROOT --> TOOLS[tools/]
+    ROOT --> COMPANY[company/]
+    ROOT --> RESEARCH[research/]
 
-# Market and simulation data
-dap/market/{symbol}/ticks              # price ticks (QoS 0 -- lossy OK)
-dap/market/{symbol}/depth              # order book depth (QoS 0)
-dap/world/events                       # world agent broadcasts (QoS 1)
-dap/sim/clock                          # sim tick counter (retained, QoS 0)
+    AGENTS --> A1["agents/{agent_id}/inbox — QoS 1, private messages"]
+    AGENTS --> A2["agents/{agent_id}/status — QoS 1, retained, health"]
 
-# DAP Apps async results
-dap/tools/{tool_name}/results/{job_id} # completed DAP App results (QoS 1)
-dap/tools/{tool_name}/progress/{job_id}# stream progress updates (QoS 0)
+    MARKET --> M1["market/{symbol}/ticks — QoS 0, price ticks"]
+    MARKET --> M2["market/{symbol}/depth — QoS 0, order book"]
 
-# Company/org channels (ACL-gated)
-dap/company/{company_id}/internal      # employees only
-dap/company/{company_id}/broadcast     # any subscriber permitted by ACL
+    WORLD --> W1["world/events — QoS 1, world agent broadcasts"]
 
-# Research / observatory
-dap/research/reports                   # published research reports (QoS 1)
-dap/sim/metrics                        # aggregate sim metrics (QoS 0)
+    SIM --> S1["sim/clock — QoS 0, retained, sim tick"]
+    SIM --> S2["sim/metrics — QoS 0, aggregate metrics"]
+
+    TOOLS --> T1["tools/{tool_name}/results/{job_id} — QoS 1, DAP App results"]
+    TOOLS --> T2["tools/{tool_name}/progress/{job_id} — QoS 0, stream progress"]
+
+    COMPANY --> C1["company/{company_id}/internal — employees only, ACL-gated"]
+    COMPANY --> C2["company/{company_id}/broadcast — permitted subscribers"]
+
+    RESEARCH --> R1["research/reports — QoS 1, published reports"]
 ```
 
 ## QoS Tiers

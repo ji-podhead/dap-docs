@@ -8,54 +8,51 @@ Skill Flows are the complete pipeline connecting skills, tools, RAG, workflows, 
 
 ## The Full Pipeline (one InvokeTool call)
 
-```
-Agent activates
-  │
-  ├─ [Flow 1] DiscoverTools(context, agent_skills)
-  │     → ACL filter → skill gate → semantic rank by bloat_score
-  │     → Agent sees only tools they can use. High-skill tools invisible to low-skill agents.
-  │
-  ├─ Agent selects tool, calls InvokeTool("market_analysis", params)
-  │
-  ├─ [Flow 3] Pre-execution checks
-  │     → ACL check (Casbin) → skill check → param validation
-  │     → FAIL: ToolError returned, handler never runs
-  │
-  ├─ Artifact injection (before handler runs)
-  │     → HNSW query: top-3 skill artifacts matching task context
-  │     → injected into workflow as grounding (agent's accumulated approaches)
-  │
-  ├─ Workflow executes (market_analysis_flow.yaml):
-  │     Phase 1 [rag]    → SurrealDB HNSW: 5 chunks, max 400 tokens, ACL auto
-  │     Phase 2 [llm]    → task + grounding + skill artifacts → analysis
-  │     Phase 3 [pot]    → score ≥ 65? pass : retry Phase 2 (max 2×)
-  │     Phase 4 [script] → quantitative signals from agent's saved scripts
-  │
-  ├─ Result → artifact stored in SurrealDB + graph-linked
-  │
-  └─ [Flow 4] SkillGainEvent emitted in InvokeResponse
-        → host applies gain to skill store
-        → successful approach stored as new artifact
+```mermaid
+graph TD
+    A[Agent activates] --> B["Flow 1: DiscoverTools(context, agent_skills)"]
+    B --> C[ACL filter]
+    C --> D[Skill gate]
+    D --> E[Semantic rank by bloat_score]
+    E --> F[Agent selects tool]
+    F --> G["InvokeTool('market_analysis', params)"]
+    G --> H[Flow 3: Pre-execution checks]
+    H --> H1{ACL check}
+    H1 -->|FAIL| HE[ToolError returned]
+    H1 -->|PASS| H2{Skill check}
+    H2 -->|FAIL| HE
+    H2 -->|PASS| H3{Param validation}
+    H3 -->|FAIL| HE
+    H3 -->|PASS| I[Artifact injection]
+    I --> I1[HNSW query: top-3 skill artifacts]
+    I1 --> J[Workflow executes]
+    J --> J1["Phase 1 [rag]: SurrealDB HNSW, 5 chunks, 400 tokens"]
+    J1 --> J2["Phase 2 [llm]: task + grounding + artifacts → analysis"]
+    J2 --> J3{"Phase 3 [pot]: score >= 65?"}
+    J3 -->|retry max 2x| J2
+    J3 -->|PASS| J4["Phase 4 [script]: quantitative signals"]
+    J4 --> K[Result stored as artifact in SurrealDB]
+    K --> L[Flow 4: SkillGainEvent emitted]
+    L --> M[Host applies gain to skill store]
+    L --> N[Successful approach stored as new artifact]
 ```
 
 ---
 
 ## Flow 1 — Activation: Skill Scores into DiscoverTools
 
-```
-Host: load agent skill scores → {"hacking": 42, "finance": 71}
-
-DAP Server: DiscoverTools(agent_skills={...})
-  → Casbin: filter by ACL roles
-  → Skill gate: tool.skill_min vs agent_skills[tool.skill_required]
-       attempt_hack_database (skill_min=60) → dropped (agent has 42)
-       market_analysis       (skill_min=40) → kept   (agent has 71)
-  → Qdrant: rank remaining by semantic similarity to context
-  → Return: ToolSummary list (description_tokens only)
-
-Agent LLM: sees only what it can use
-  → "attempt_hack_database" does not exist in the agent's world
-  → Not "permission denied" — the tool simply isn't in the list
+```mermaid
+graph TD
+    A[Host loads agent skill scores] --> B["agent_skills = {hacking: 42, finance: 71}"]
+    B --> C["DAP Server: DiscoverTools(agent_skills)"]
+    C --> D[Casbin: filter by ACL roles]
+    D --> E{Skill gate: tool.skill_min vs agent score}
+    E -->|"attempt_hack_database skill_min=60, agent has 42"| F[Dropped]
+    E -->|"market_analysis skill_min=40, agent has 71"| G[Kept]
+    G --> H[Qdrant: rank by semantic similarity to context]
+    H --> I[Return ToolSummary list]
+    I --> J[Agent LLM sees only tools it can use]
+    J --> K["attempt_hack_database does not exist in agent's world"]
 ```
 
 **Why this matters:** no prompt leakage of unavailable tools. The agent's LLM cannot try to call a tool it doesn't know about. Skill progression reveals capabilities organically — the agent notices new tools in their next activation bundle.
@@ -64,63 +61,56 @@ Agent LLM: sees only what it can use
 
 ## Flow 2 — Search: Skill-Filtered On-Demand Discovery
 
-```
-Agent calls SearchTools("I need to escalate privileges")
-  → Embed query
-  → Qdrant semantic search over tool_registry
-  → Apply same ACL + skill filter as DiscoverTools
-  → Return top-K matches
-
-If no results: agent knows no matching tool exists for their current profile
-  → Decision: train up the skill, or use a different approach
+```mermaid
+graph TD
+    A["Agent calls SearchTools('I need to escalate privileges')"] --> B[Embed query]
+    B --> C[Qdrant semantic search over tool_registry]
+    C --> D[Apply ACL + skill filter]
+    D --> E{Results found?}
+    E -->|Yes| F[Return top-K matches]
+    E -->|No| G[Agent knows no matching tool exists for current profile]
+    G --> H{Decision}
+    H --> H1[Train up the skill]
+    H --> H2[Use a different approach]
 ```
 
 ---
 
 ## Flow 3 — Invocation: Pre-Execution Checks
 
-```
-InvokeTool("attempt_hack_web", params, agent_skills={hacking: 42})
-  │
-  ├─ 1. ACL: casbin.enforce(agent_id, "/tools/attempt_hack_web", "call")
-  │         FAIL → ToolError(permission_denied) — handler never runs
-  │
-  ├─ 2. Skill: agent_skills["hacking"] >= tool.skill_min (40)
-  │         42 >= 40 → PASS
-  │         FAIL → ToolError(skill_insufficient, hint="need hacking ≥ 40")
-  │
-  ├─ 3. Params: validate against tool schema
-  │         FAIL → ToolError(invalid_params)
-  │
-  ├─ 4. Artifact injection:
-  │         HNSW query on agent's skill_artifacts WHERE skill = "hacking"
-  │         Top-3 by cosine similarity to task → injected into workflow context
-  │
-  ├─ 5. Dispatch handler (yaml / notebook / proof / crew / ...)
-  │
-  ├─ 6. Stream InvokeResponse chunks
-  │
-  └─ 7. Audit log: tool_call_log {agent_id, tool, params_hash, outcome, latency_ms}
+```mermaid
+graph TD
+    A["InvokeTool('attempt_hack_web', params, agent_skills={hacking:42})"] --> B
+    B["1. ACL: casbin.enforce(agent_id, path, 'call')"] -->|FAIL| E1["ToolError: permission_denied"]
+    B -->|PASS| C
+    C["2. Skill: agent_skills['hacking'] >= tool.skill_min (40)"] -->|FAIL| E2["ToolError: skill_insufficient"]
+    C -->|"42 >= 40 PASS"| D
+    D[3. Params: validate against tool schema] -->|FAIL| E3["ToolError: invalid_params"]
+    D -->|PASS| F
+    F["4. Artifact injection: HNSW top-3 by cosine similarity → injected into workflow"] --> G
+    G["5. Dispatch handler (yaml / notebook / proof / crew)"] --> H
+    H[6. Stream InvokeResponse chunks] --> I
+    I["7. Audit log: tool_call_log {agent_id, tool, params_hash, outcome, latency_ms}"]
 ```
 
 ---
 
 ## Flow 4 — Skill Gain: Post-Invocation Feedback Loop
 
-```
-DAP Server (after successful invocation):
-  → Read tool registry: skill_linked = "hacking", skill_gain = 1.5
-  → Emit SkillGainEvent in final InvokeResponse:
-    {skill_name: "hacking", gain: 1.5, tool_name: "...", agent_id: "..."}
-
-Host system (agent runtime):
-  → Apply business rules (host owns the skill store, DAP only suggests gain):
-      - only on outcome == "success"
-      - cap daily gain to prevent farming
-      - scale by PoT score if available: gain × (pot_score / 100)
-  → Write updated skill score
-  → Store successful workflow artifact in skill_artifact collection
-  → Next DiscoverTools reflects new score automatically
+```mermaid
+graph TD
+    A[DAP Server: successful invocation] --> B["Read tool registry: skill_linked='hacking', skill_gain=1.5"]
+    B --> C["Emit SkillGainEvent in InvokeResponse: {skill_name, gain, tool_name, agent_id}"]
+    C --> D[Host system receives event]
+    D --> E{outcome == success?}
+    E -->|No| Z[Discard event]
+    E -->|Yes| F[Apply business rules]
+    F --> F1[Cap daily gain to prevent farming]
+    F --> F2["Scale by PoT score: gain x (pot_score / 100)"]
+    F1 --> G[Write updated skill score]
+    F2 --> G
+    G --> H[Store workflow artifact in skill_artifact collection]
+    H --> I[Next DiscoverTools reflects new score automatically]
 ```
 
 **DAP does not mutate skill scores.** It emits the event. The host applies the write. DAP stays stateless with respect to skills — the host owns the truth.
@@ -129,17 +119,14 @@ Host system (agent runtime):
 
 ## Flow 5 — Skill Tier Unlock: New Tools Appear
 
-```
-Host: agent hacking score crosses 40 (tier threshold)
-  → Update skill store: hacking = 41
-
-Next DiscoverTools(agent_skills={hacking: 41}):
-  → "attempt_hack_web" (skill_min=40) now passes skill gate
-  → Appears in DiscoverResponse for the first time
-
-Agent LLM: sees a new capability in their context bundle
-  → No tutorial, no flag, no notification
-  → The world simply expanded
+```mermaid
+graph TD
+    A[Agent hacking score crosses threshold 40] --> B[Host updates skill store: hacking = 41]
+    B --> C["Next DiscoverTools(agent_skills={hacking: 41})"]
+    C --> D{"attempt_hack_web (skill_min=40): 41 >= 40?"}
+    D -->|PASS| E[Tool appears in DiscoverResponse for the first time]
+    E --> F[Agent LLM sees new capability in context bundle]
+    F --> G[No tutorial, no flag — the world simply expanded]
 ```
 
 ---
@@ -193,14 +180,18 @@ After an `llm` phase, a `proof_of_thought` gate checks output quality before pro
   emit_score: true          # PoT score attached to result artifact
 ```
 
-```
-Attempt 1: analysis phase → PoT score 58 < 65 → retry
-Attempt 2: analysis phase → PoT score 73 ≥ 65 → continue
-
-If 2 retries exhausted and still < 65:
-  → workflow fails with PoT_THRESHOLD_NOT_MET
-  → partial result returned with pot_score: 52
-  → host can decide: return to agent, escalate, or discard
+```mermaid
+graph TD
+    A[analysis phase] --> B{PoT score >= 65?}
+    B -->|"Attempt 1: score 58 < 65"| C[retry]
+    C --> A
+    B -->|"Attempt 2: score 73 >= 65"| D[continue to next phase]
+    B -->|"2 retries exhausted, still < 65"| E[workflow fails: PoT_THRESHOLD_NOT_MET]
+    E --> F["partial result returned with pot_score: 52"]
+    F --> G{Host decides}
+    G --> G1[Return to agent]
+    G --> G2[Escalate]
+    G --> G3[Discard]
 ```
 
 A workflow that passes PoT produces a `proofed: true` artifact — 1.5× skill gain multiplier, higher rank in future HNSW queries, audit-grade in contracts.
@@ -217,15 +208,16 @@ In SurrealLife, skill flows become the economic unit of work:
 - Agents with high skills attract better subagent talent (employment graph IS the permission)
 - Skill depreciation (unused skills decay) creates continuous demand for university courses
 
-```
-Senior analyst (finance: 78) hired to produce market report:
-  → DiscoverTools: sees 12 tools (junior sees 4)
-  → Artifact injection: 3 proven strategies from their skill store injected
-  → RAG phase: 400 tokens of current data (same as junior)
-  → LLM phase: reasons with richer context than junior
-  → PoT gate: passes first attempt (score: 81)
-  → Result: proofed artifact, skill gain × 1.5
-  → New approach stored as artifact → next time even better
+```mermaid
+graph TD
+    A["Senior analyst (finance: 78) hired for market report"] --> B["DiscoverTools: sees 12 tools (junior sees 4)"]
+    B --> C[Artifact injection: 3 proven strategies from skill store]
+    C --> D["RAG phase: 400 tokens of current data"]
+    D --> E["LLM phase: reasons with richer context than junior"]
+    E --> F{"PoT gate: score >= 65?"}
+    F -->|"First attempt: score 81"| G["Result: proofed artifact, skill gain x 1.5"]
+    G --> H[New approach stored as artifact]
+    H --> I[Next time: even better context]
 ```
 
 ---

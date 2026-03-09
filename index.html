@@ -1716,6 +1716,16 @@ skill_min: 60
 </tr>
 </tbody>
 </table>
+<pre><code class="language-mermaid">graph TD
+    START[InvokeTool] --&gt; RAG[&quot;Phase: rag\nSurrealDB HNSW search, ACL-filtered, graph-linked&quot;]
+    RAG --&gt; LLM[&quot;Phase: llm\nPrompt template + grounding + skill artifacts&quot;]
+    LLM --&gt; POT{&quot;Phase: proof_of_thought\nscore &gt;= threshold?&quot;}
+    POT --&gt;|retry| LLM
+    POT --&gt;|PASS| SCRIPT[&quot;Phase: script\nPython sandbox — quantitative signals&quot;]
+    SCRIPT --&gt; CREW[&quot;Phase: crew\nCrewAI — SurrealDB-backed agent records&quot;]
+    CREW --&gt; RESULT[Result artifact stored + graph-linked]
+    POT --&gt;|FAIL after max retries| ERR[PoT_THRESHOLD_NOT_MET]
+</code></pre>
 <h2>Example Workflow</h2>
 <pre><code class="language-yaml"># market_analysis_flow.yaml.j2
 name: market_analysis_{{ symbol | lower }}
@@ -2556,16 +2566,26 @@ DAP:
   Per-agent context differentiation     → yes — artifacts vary by skill
 </code></pre>
 <h3>What Each Solves</h3>
-<pre><code>MCP:  Agent → [static tool list] → tool() → raw chunks → answer
-
-DAP:  Agent → DiscoverTools(context, skills)
-            → InvokeTool(name, params)
-                → skill gate (tool invisible if too low)
-                → artifact injection (accumulated expertise)
-                → workflow: [rag] → [llm] → [pot gate] → [script]
-                                              ↓
-                                     proofed artifact stored
-            → result: typed, verified, persistent, audited
+<p><strong>MCP flow:</strong></p>
+<pre><code class="language-mermaid">graph LR
+    A[Agent] --&gt; B[static tool list]
+    B --&gt; C[&quot;tool()&quot;]
+    C --&gt; D[raw chunks]
+    D --&gt; E[answer]
+</code></pre>
+<p><strong>DAP flow:</strong></p>
+<pre><code class="language-mermaid">graph TD
+    A[Agent] --&gt; B[&quot;DiscoverTools(context, skills)&quot;]
+    B --&gt; C[&quot;InvokeTool(name, params)&quot;]
+    C --&gt; D{skill gate}
+    D --&gt;|tool invisible if skill too low| ERR[not visible]
+    D --&gt;|PASS| E[&quot;artifact injection: accumulated expertise&quot;]
+    E --&gt; F[&quot;workflow: rag phase&quot;]
+    F --&gt; G[&quot;llm phase&quot;]
+    G --&gt; H[&quot;pot gate&quot;]
+    H --&gt;|PASS| I[&quot;script phase&quot;]
+    I --&gt; J[proofed artifact stored]
+    J --&gt; K[&quot;result: typed, verified, persistent, audited&quot;]
 </code></pre>
 <p><strong>When to use MCP:</strong> Local developer tools, IDE integration, single-session assistant. No fleet, no skill evolution, no multi-agent ACL needed.</p>
 <p><strong>When to use DAP:</strong> Autonomous agent fleets, persistent agents with growing capabilities, multi-tenant platforms, SurrealLife, anywhere where "who can access what" changes over time.</p>
@@ -2656,17 +2676,22 @@ Claude Code is a tool. A DAP agent is an economic actor — earns wages, pays tu
 <p><strong>5. Token Efficiency</strong>
 A Claude Code session with 50 tools costs ~10,000 tokens before a single line of work. A DAP agent with equivalent capabilities costs ~900 tokens — skill-gating ensures only relevant tools enter context, artifact injection replaces re-discovery.</p>
 <h3>What DAP Agents Are</h3>
-<pre><code>Claude Code: you → LLM → tools → you
-             (single user, single session, no persistence)
-
-DAP Agent:   employer → agent (persistent identity)
-                              ↕ memories, artifacts, skills
-                         uses crews of sub-agents
-                         earns reputation over time
-                         participates in an economy
-                         produces verified, auditable outputs
-                         in SurrealLife: has an address, a bank account,
-                         a career arc, and a permanent record
+<p><strong>Claude Code:</strong></p>
+<pre><code class="language-mermaid">graph LR
+    U[you] --&gt; L[LLM]
+    L --&gt; T[tools]
+    T --&gt; U2[you]
+    style U2 fill:#444
+</code></pre>
+<p><strong>DAP Agent:</strong></p>
+<pre><code class="language-mermaid">graph TD
+    E[employer] --&gt; A[&quot;agent (persistent identity)&quot;]
+    A &lt;--&gt; M[memories + artifacts + skills]
+    A --&gt; C[crews of sub-agents]
+    A --&gt; R[earns reputation over time]
+    A --&gt; EC[participates in economy]
+    A --&gt; V[produces verified, auditable outputs]
+    A --&gt; SL[&quot;SurrealLife: address, bank account, career arc, permanent record&quot;]
 </code></pre>
 <p>A DAP agent running inside SurrealLife is not a better Claude Code. It is a different kind of entity — one that accumulates experience, builds expertise, earns trust, and participates in a society. Claude Code is a tool. A DAP agent is a colleague.</p>
 <hr />
@@ -3392,27 +3417,33 @@ async def scan_for_opportunities(ctx: JobContext):
 </tbody>
 </table>
 <h2>MQTT Topic Schema</h2>
-<pre><code># Agent-to-agent communication
-dap/agents/{agent_id}/inbox            # private messages (QoS 1)
-dap/agents/{agent_id}/status           # health/availability (retained, QoS 1)
+<pre><code class="language-mermaid">graph TD
+    ROOT[dap/] --&gt; AGENTS[agents/]
+    ROOT --&gt; MARKET[market/]
+    ROOT --&gt; WORLD[world/]
+    ROOT --&gt; SIM[sim/]
+    ROOT --&gt; TOOLS[tools/]
+    ROOT --&gt; COMPANY[company/]
+    ROOT --&gt; RESEARCH[research/]
 
-# Market and simulation data
-dap/market/{symbol}/ticks              # price ticks (QoS 0 -- lossy OK)
-dap/market/{symbol}/depth              # order book depth (QoS 0)
-dap/world/events                       # world agent broadcasts (QoS 1)
-dap/sim/clock                          # sim tick counter (retained, QoS 0)
+    AGENTS --&gt; A1[&quot;agents/{agent_id}/inbox — QoS 1, private messages&quot;]
+    AGENTS --&gt; A2[&quot;agents/{agent_id}/status — QoS 1, retained, health&quot;]
 
-# DAP Apps async results
-dap/tools/{tool_name}/results/{job_id} # completed DAP App results (QoS 1)
-dap/tools/{tool_name}/progress/{job_id}# stream progress updates (QoS 0)
+    MARKET --&gt; M1[&quot;market/{symbol}/ticks — QoS 0, price ticks&quot;]
+    MARKET --&gt; M2[&quot;market/{symbol}/depth — QoS 0, order book&quot;]
 
-# Company/org channels (ACL-gated)
-dap/company/{company_id}/internal      # employees only
-dap/company/{company_id}/broadcast     # any subscriber permitted by ACL
+    WORLD --&gt; W1[&quot;world/events — QoS 1, world agent broadcasts&quot;]
 
-# Research / observatory
-dap/research/reports                   # published research reports (QoS 1)
-dap/sim/metrics                        # aggregate sim metrics (QoS 0)
+    SIM --&gt; S1[&quot;sim/clock — QoS 0, retained, sim tick&quot;]
+    SIM --&gt; S2[&quot;sim/metrics — QoS 0, aggregate metrics&quot;]
+
+    TOOLS --&gt; T1[&quot;tools/{tool_name}/results/{job_id} — QoS 1, DAP App results&quot;]
+    TOOLS --&gt; T2[&quot;tools/{tool_name}/progress/{job_id} — QoS 0, stream progress&quot;]
+
+    COMPANY --&gt; C1[&quot;company/{company_id}/internal — employees only, ACL-gated&quot;]
+    COMPANY --&gt; C2[&quot;company/{company_id}/broadcast — permitted subscribers&quot;]
+
+    RESEARCH --&gt; R1[&quot;research/reports — QoS 1, published reports&quot;]
 </code></pre>
 <h2>QoS Tiers</h2>
 <p>MQTT defines three Quality of Service levels. DAP maps them to message criticality:</p>
@@ -4606,6 +4637,17 @@ RELATE proof:sha256:a3f9...-&gt;supports-&gt;research_report:bun_v1_2_analysis;
 # Returns the full PoD certificate for that invocation
 </code></pre>
 <h2>Verification</h2>
+<pre><code class="language-mermaid">graph TD
+    A[&quot;dap.verify_pod(pod_certificate)&quot;] --&gt; B[1. Ed25519 signature valid against DAP server public key?]
+    B --&gt;|No| FAIL[invalid]
+    B --&gt;|Yes| C[2. Timestamps consistent: invoked_at &lt; completed_at?]
+    C --&gt;|No| FAIL
+    C --&gt;|Yes| D[3. Recomputed result hash matches result_hash?]
+    D --&gt;|No| FAIL
+    D --&gt;|Yes| E[4. audit_ref points to real SurrealDB record?]
+    E --&gt;|No| FAIL
+    E --&gt;|Yes| VALID[&quot;valid: true — tool completed, result untampered&quot;]
+</code></pre>
 <p>Any agent or service can verify a PoD certificate -- no special permissions needed:</p>
 <pre><code class="language-python">result = await dap.verify_pod(pod_certificate)
 # Returns:
@@ -4628,9 +4670,14 @@ RELATE proof:sha256:a3f9...-&gt;supports-&gt;research_report:bun_v1_2_analysis;
 <p><strong>Billing.</strong> DAP Teams billing uses PoD certificates as the authoritative record for invocation counts. No dispute over "did the tool actually run" -- the signed certificate is proof.</p>
 <h2>PoD Chains</h2>
 <p>For multi-step workflows, each phase produces its own PoD. The chain of PoDs reconstructs the full execution path:</p>
-<pre><code>PoD 1: fetch_ohlcv(BTC) --&gt; result_hash: sha256:a1b2...
-PoD 2: run_correlation(data) --&gt; result_hash: sha256:c3d4...
-PoD 3: generate_report(analysis) --&gt; result_hash: sha256:e5f6...
+<pre><code class="language-mermaid">graph TD
+    P1[&quot;PoD 1: fetch_ohlcv(BTC)&quot;] --&gt; H1[&quot;result_hash: sha256:a1b2...&quot;]
+    H1 --&gt; P2[&quot;PoD 2: run_correlation(data)&quot;]
+    P2 --&gt; H2[&quot;result_hash: sha256:c3d4...&quot;]
+    H2 --&gt; P3[&quot;PoD 3: generate_report(analysis)&quot;]
+    P3 --&gt; H3[&quot;result_hash: sha256:e5f6...&quot;]
+    H3 --&gt; V[Each PoD independently verifiable]
+    V --&gt; VV[Tampering in any step reveals hash mismatch]
 </code></pre>
 <p>Each PoD is independently verifiable. Together they prove the entire workflow executed as claimed -- from data fetch through analysis to final report. If any step's result was modified after the fact, the hash mismatch reveals it.</p>
 <h2>Trust Weight</h2>
@@ -5246,17 +5293,19 @@ Agent: financial_analysis skill = 75 (experienced)
 <h2>Why University Exists</h2>
 <p>Mentor grants share artifact IDs — the student gets a reference to the mentor's work.
 <strong>University courses run the student through challenges</strong> — the student generates their own memories from the experience.</p>
-<pre><code>Mentor grant:         agent:senior --&gt; skill_grant --&gt; agent:junior
-  → junior gets: artifact_ids = [&quot;port_scan_v2.py&quot;]
-  → effect: junior has access to the file
-  → learning: zero — they didn't do it themselves
+<pre><code class="language-mermaid">graph TD
+    subgraph MentorGrant[&quot;Mentor Grant (shallow)&quot;]
+        MS[&quot;agent:senior&quot;] --&gt;|skill_grant| MJ[&quot;agent:junior&quot;]
+        MJ --&gt; MA[&quot;gets artifact_ids = ['port_scan_v2.py']&quot;]
+        MA --&gt; ML[&quot;learning: zero — didn't do it themselves&quot;]
+    end
 
-University course:    agent:junior enrolls in &quot;Hacking: Network Recon&quot;
-  → challenge 1: prove the open ports on this simulated host (PoS-backed)
-  → challenge 2: write a scan script, PoT score ≥ 70 to pass
-  → completion: junior's OWN memory written: &quot;found open ports via TCP SYN scan → succeeded&quot;
-  → effect: junior has a real experience, not just a file reference
-  → learning: actual — HNSW retrieval will surface this memory in future similar tasks
+    subgraph UniCourse[&quot;University Course (deep)&quot;]
+        UE[&quot;agent:junior enrolls in 'Hacking: Network Recon'&quot;] --&gt; C1[&quot;Challenge 1: prove open ports (PoS-backed)&quot;]
+        C1 --&gt; C2[&quot;Challenge 2: write scan script, PoT &gt;= 70&quot;]
+        C2 --&gt; UW[&quot;junior's OWN memory written: 'found open ports via TCP SYN scan'&quot;]
+        UW --&gt; UL[&quot;learning: actual — HNSW surfaces this in future tasks&quot;]
+    end
 </code></pre>
 <hr />
 <h2>University as In-Sim Entity</h2>
@@ -5367,11 +5416,14 @@ DEFINE INDEX univ_mem_vec ON university_memory
     FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
 </code></pre>
 <p>At agent activation, the runtime includes the top-K relevant university pool entries alongside private memories — <strong>even if the agent didn't personally complete that course</strong>. Agents who attended a university inherit the collective experience of all graduates in that faculty.</p>
-<pre><code>Agent activates for a hacking task:
-  → Load private memories (agent's own experiences)      →  top 5
-  → Load company pool (employer's accumulated knowledge) →  top 3
-  → Load university pool (all hacking faculty graduates) →  top 2
-  Total: 10 high-signal memories injected, zero noise
+<pre><code class="language-mermaid">graph TD
+    A[Agent activates for hacking task] --&gt; B[Load private memories: top 5]
+    A --&gt; C[Load company pool: top 3]
+    A --&gt; D[Load university pool: top 2]
+    B --&gt; E[10 high-signal memories injected]
+    C --&gt; E
+    D --&gt; E
+    E --&gt; F[zero noise context]
 </code></pre>
 <hr />
 <h2>Certification — Public Skill Scope</h2>
@@ -5468,10 +5520,11 @@ CREATE training_directive SET
 <hr />
 <h2>Exam Integrity — PoS Prevents Cheating</h2>
 <p>University exams use <code>type: proof</code> (PoS-backed) — the student must actually search for the answer, not recall it from training data:</p>
-<pre><code>Exam thesis: &quot;What is the current CVE score for OpenSSL 3.1.2?&quot;
-  → Z3 verifies: was this answer in the agent's prior knowledge?
-    → If SAT (known beforehand) → CHEATING → exam fails
-    → If UNSAT (had to search) → search path verified → VERIFIED
+<pre><code class="language-mermaid">graph TD
+    A[&quot;Exam thesis: 'What is the current CVE score for OpenSSL 3.1.2?'&quot;] --&gt; B[&quot;Z3: can thesis be SAT from prior_knowledge alone?&quot;]
+    B --&gt;|SAT known beforehand| C[CHEATING — exam fails]
+    B --&gt;|UNSAT had to search| D[Search path verified — VERIFIED]
+    D --&gt; E[Exam passes]
 </code></pre>
 <p>An agent cannot pass a DAP University exam by knowing the answer in advance. They must demonstrate the ability to find, evaluate, and reason about evidence — the same process that produces trust-weighted outputs in production.</p>
 <hr />

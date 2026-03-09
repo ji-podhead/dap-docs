@@ -14,6 +14,18 @@ Workflows are YAML artifacts stored in the skill store. They define multi-phase 
 | `proof_of_thought` | PoT scorer — quality gate | Always |
 | `simengine` | Sim clock pause + world event | SurrealLife only |
 
+```mermaid
+graph TD
+    START[InvokeTool] --> RAG["Phase: rag\nSurrealDB HNSW search, ACL-filtered, graph-linked"]
+    RAG --> LLM["Phase: llm\nPrompt template + grounding + skill artifacts"]
+    LLM --> POT{"Phase: proof_of_thought\nscore >= threshold?"}
+    POT -->|retry| LLM
+    POT -->|PASS| SCRIPT["Phase: script\nPython sandbox — quantitative signals"]
+    SCRIPT --> CREW["Phase: crew\nCrewAI — SurrealDB-backed agent records"]
+    CREW --> RESULT[Result artifact stored + graph-linked]
+    POT -->|FAIL after max retries| ERR[PoT_THRESHOLD_NOT_MET]
+```
+
 ## Example Workflow
 
 ```yaml

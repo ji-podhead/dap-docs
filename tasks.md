@@ -39,22 +39,33 @@ async for note in db.live_notifications(live_id):
 
 Alternatively via MQTT inbox (for cross-service assignment):
 
-```
-dap/agents/{agent_id}/inbox
-→ {"type": "task_assigned", "task_id": "task:abc123", "priority": "high"}
+```mermaid
+sequenceDiagram
+    participant Boss
+    participant MQTT
+    participant Agent
+    Boss->>MQTT: publish to dap/agents/{agent_id}/inbox
+    Note right of MQTT: {"type": "task_assigned", "task_id": "task:abc123", "priority": "high"}
+    MQTT-->>Agent: deliver message
+    Agent->>Agent: handle_task(task)
 ```
 
 ---
 
 ## Task States
 
-```
-pending → active → done
-              ↓
-           blocked → active (unblocked)
-              ↓
-           failed → (retry or escalate)
-           cancelled
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> active : agent accepts
+    active --> done : result delivered
+    active --> blocked : dependency or resource missing
+    blocked --> active : unblocked
+    active --> failed : handler error / deadline missed
+    failed --> active : retry
+    failed --> pending : reassign
+    active --> cancelled
+    pending --> cancelled
 ```
 
 ```surql
@@ -263,12 +274,15 @@ DEFINE EVENT task_completed ON task WHEN $after.status = "done" THEN {
 
 In DAP Teams, task state is a live data stream — no meeting to ask for status:
 
-```
-dap/teams/{team_id}/tasks/{task_id}/status
-→ {"status": "active", "agent": "agent:analyst", "progress_pct": 67}
-
-LIVE SELECT: cross-team dashboard shows real-time task states
-Boss: sees all tasks in their team graph at a glance
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant SurrealDB
+    participant Boss
+    Agent->>SurrealDB: UPDATE task SET status='active', progress_pct=67
+    SurrealDB-->>Boss: LIVE SELECT fires
+    Note over Boss: sees all tasks in team graph at a glance
+    SurrealDB-->>MQTT: publish to dap/teams/{team_id}/tasks/{task_id}/status
 ```
 
 ---

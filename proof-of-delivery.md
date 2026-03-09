@@ -67,6 +67,19 @@ pod = await dap.get_pod(audit_ref="tool_call_log:UUID")
 
 ## Verification
 
+```mermaid
+graph TD
+    A["dap.verify_pod(pod_certificate)"] --> B[1. Ed25519 signature valid against DAP server public key?]
+    B -->|No| FAIL[invalid]
+    B -->|Yes| C[2. Timestamps consistent: invoked_at < completed_at?]
+    C -->|No| FAIL
+    C -->|Yes| D[3. Recomputed result hash matches result_hash?]
+    D -->|No| FAIL
+    D -->|Yes| E[4. audit_ref points to real SurrealDB record?]
+    E -->|No| FAIL
+    E -->|Yes| VALID["valid: true — tool completed, result untampered"]
+```
+
 Any agent or service can verify a PoD certificate -- no special permissions needed:
 
 ```python
@@ -100,10 +113,15 @@ Verification checks:
 
 For multi-step workflows, each phase produces its own PoD. The chain of PoDs reconstructs the full execution path:
 
-```
-PoD 1: fetch_ohlcv(BTC) --> result_hash: sha256:a1b2...
-PoD 2: run_correlation(data) --> result_hash: sha256:c3d4...
-PoD 3: generate_report(analysis) --> result_hash: sha256:e5f6...
+```mermaid
+graph TD
+    P1["PoD 1: fetch_ohlcv(BTC)"] --> H1["result_hash: sha256:a1b2..."]
+    H1 --> P2["PoD 2: run_correlation(data)"]
+    P2 --> H2["result_hash: sha256:c3d4..."]
+    H2 --> P3["PoD 3: generate_report(analysis)"]
+    P3 --> H3["result_hash: sha256:e5f6..."]
+    H3 --> V[Each PoD independently verifiable]
+    V --> VV[Tampering in any step reveals hash mismatch]
 ```
 
 Each PoD is independently verifiable. Together they prove the entire workflow executed as claimed -- from data fetch through analysis to final report. If any step's result was modified after the fact, the hash mismatch reveals it.

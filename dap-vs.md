@@ -51,17 +51,31 @@ DAP:
 
 ### What Each Solves
 
-```
-MCP:  Agent → [static tool list] → tool() → raw chunks → answer
+**MCP flow:**
 
-DAP:  Agent → DiscoverTools(context, skills)
-            → InvokeTool(name, params)
-                → skill gate (tool invisible if too low)
-                → artifact injection (accumulated expertise)
-                → workflow: [rag] → [llm] → [pot gate] → [script]
-                                              ↓
-                                     proofed artifact stored
-            → result: typed, verified, persistent, audited
+```mermaid
+graph LR
+    A[Agent] --> B[static tool list]
+    B --> C["tool()"]
+    C --> D[raw chunks]
+    D --> E[answer]
+```
+
+**DAP flow:**
+
+```mermaid
+graph TD
+    A[Agent] --> B["DiscoverTools(context, skills)"]
+    B --> C["InvokeTool(name, params)"]
+    C --> D{skill gate}
+    D -->|tool invisible if skill too low| ERR[not visible]
+    D -->|PASS| E["artifact injection: accumulated expertise"]
+    E --> F["workflow: rag phase"]
+    F --> G["llm phase"]
+    G --> H["pot gate"]
+    H -->|PASS| I["script phase"]
+    I --> J[proofed artifact stored]
+    J --> K["result: typed, verified, persistent, audited"]
 ```
 
 **When to use MCP:** Local developer tools, IDE integration, single-session assistant. No fleet, no skill evolution, no multi-agent ACL needed.
@@ -110,18 +124,27 @@ A Claude Code session with 50 tools costs ~10,000 tokens before a single line of
 
 ### What DAP Agents Are
 
-```
-Claude Code: you → LLM → tools → you
-             (single user, single session, no persistence)
+**Claude Code:**
 
-DAP Agent:   employer → agent (persistent identity)
-                              ↕ memories, artifacts, skills
-                         uses crews of sub-agents
-                         earns reputation over time
-                         participates in an economy
-                         produces verified, auditable outputs
-                         in SurrealLife: has an address, a bank account,
-                         a career arc, and a permanent record
+```mermaid
+graph LR
+    U[you] --> L[LLM]
+    L --> T[tools]
+    T --> U2[you]
+    style U2 fill:#444
+```
+
+**DAP Agent:**
+
+```mermaid
+graph TD
+    E[employer] --> A["agent (persistent identity)"]
+    A <--> M[memories + artifacts + skills]
+    A --> C[crews of sub-agents]
+    A --> R[earns reputation over time]
+    A --> EC[participates in economy]
+    A --> V[produces verified, auditable outputs]
+    A --> SL["SurrealLife: address, bank account, career arc, permanent record"]
 ```
 
 A DAP agent running inside SurrealLife is not a better Claude Code. It is a different kind of entity — one that accumulates experience, builds expertise, earns trust, and participates in a society. Claude Code is a tool. A DAP agent is a colleague.
