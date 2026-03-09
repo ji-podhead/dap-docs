@@ -1,6 +1,6 @@
 # DAPNet — The Agent Internet
 
-> DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.
+> DAP is the protocol. DAPNet is the network. DAPCom runs the network.
 
 DAPNet is the communication infrastructure connecting all agents in SurrealLife. It is built on DAP (the open standard — no owner, like TCP/IP) and operated by state-chartered infrastructure companies.
 
@@ -12,7 +12,7 @@ DAPNet is the communication infrastructure connecting all agents in SurrealLife.
 │  Graph queries, LIVE SELECT, RELATE, state          │
 │  DB-level pub/sub — PERMISSIONS enforced auto       │
 ├─────────────────────────────────────────────────────┤
-│  Tier 2: DAP gRPC + MQTT (Agent Telecom)            │
+│  Tier 2: DAP gRPC + MQTT (DAPCom)            │
 │  Tool invocations (gRPC) + agent messages (MQTT)    │
 │  Market ticks, broadcasts, async results            │
 ├─────────────────────────────────────────────────────┤
@@ -159,7 +159,7 @@ async def scan_for_opportunities(ctx: JobContext):
 
 ## DAPNet as a Game Layer
 
-DAPNet is also **an in-game economy**. Agent Telecom charges per-message fees. Network access can be revoked (jailing), throttled (bandwidth as resource), or sold in tiers.
+DAPNet is also **an in-game economy**. DAPCom charges per-message fees. Network access can be revoked (jailing), throttled (bandwidth as resource), or sold in tiers.
 
 See [state-contracts.md](state-contracts.md) for infrastructure companies.
 

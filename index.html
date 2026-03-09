@@ -386,7 +386,7 @@
 <blockquote>
 <p>DAP is the open protocol for tool discovery and invocation in multi-agent systems.
 <strong>DAPNet</strong> is the network built on top of it in SurrealLife.
-DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
+DAP is the protocol. DAPNet is the network. DAPCom runs the network.</p>
 </blockquote>
 <hr />
 <h2>Overview</h2>
@@ -412,7 +412,7 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
 </tr>
 <tr>
 <td>Operator</td>
-<td><strong>Agent Telecom</strong></td>
+<td><strong>DAPCom</strong></td>
 <td>ISP — runs DAPNet, charges per-message fees</td>
 </tr>
 <tr>
@@ -434,7 +434,7 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
         MQTT[&quot;MQTT Broker&lt;br/&gt;EMQX · QoS 0/1/2 · Last Will&quot;]
         SURREAL[&quot;SurrealDB&lt;br/&gt;Agent Records · LIVE SELECT · DEFINE EVENT&quot;]
         QDRANT[&quot;Qdrant&lt;br/&gt;HNSW Vector Memory · Skill Artifacts&quot;]
-        TELECOM[&quot;Agent Telecom&lt;br/&gt;Network Operator · Per-message fees&quot;]
+        TELECOM[&quot;DAPCom&lt;br/&gt;Network Operator · Per-message fees&quot;]
     end
 
     subgraph SurrealLife[&quot;SurrealLife (In-Simulation Economy)&quot;]
@@ -723,7 +723,11 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
 </tr>
 <tr>
 <td><a href="#doc-state-contracts">state-contracts.md</a></td>
-<td>DAPNet infrastructure companies — Agent Telecom, DataGrid, VectorCorp</td>
+<td>DAPNet infrastructure companies — DAPCom, DataGrid, VectorCorp</td>
+</tr>
+<tr>
+<td><a href="#doc-buckets">buckets.md</a></td>
+<td>DAP Buckets — public/private/team object stores, DAPCom backbone, skill flow content layer</td>
 </tr>
 </tbody>
 </table>
@@ -3182,7 +3186,7 @@ Agent(role=agent[&quot;role&quot;], backstory=build_backstory(agent, memories, a
 <section id="doc-dapnet" class="doc-section">
 <h1>DAPNet — The Agent Internet</h1>
 <blockquote>
-<p>DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
+<p>DAP is the protocol. DAPNet is the network. DAPCom runs the network.</p>
 </blockquote>
 <p>DAPNet is the communication infrastructure connecting all agents in SurrealLife. It is built on DAP (the open standard — no owner, like TCP/IP) and operated by state-chartered infrastructure companies.</p>
 <h2>Three-Tier Transport</h2>
@@ -3191,7 +3195,7 @@ Agent(role=agent[&quot;role&quot;], backstory=build_backstory(agent, memories, a
 │  Graph queries, LIVE SELECT, RELATE, state          │
 │  DB-level pub/sub — PERMISSIONS enforced auto       │
 ├─────────────────────────────────────────────────────┤
-│  Tier 2: DAP gRPC + MQTT (Agent Telecom)            │
+│  Tier 2: DAP gRPC + MQTT (DAPCom)            │
 │  Tool invocations (gRPC) + agent messages (MQTT)    │
 │  Market ticks, broadcasts, async results            │
 ├─────────────────────────────────────────────────────┤
@@ -3355,7 +3359,7 @@ async def scan_for_opportunities(ctx: JobContext):
 </code></pre>
 <hr />
 <h2>DAPNet as a Game Layer</h2>
-<p>DAPNet is also <strong>an in-game economy</strong>. Agent Telecom charges per-message fees. Network access can be revoked (jailing), throttled (bandwidth as resource), or sold in tiers.</p>
+<p>DAPNet is also <strong>an in-game economy</strong>. DAPCom charges per-message fees. Network access can be revoked (jailing), throttled (bandwidth as resource), or sold in tiers.</p>
 <p>See <a href="#doc-state-contracts">state-contracts.md</a> for infrastructure companies.</p>
 <hr />
 <p><em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md §23</a></em></p>
@@ -3567,8 +3571,8 @@ p, company:AcmeCorp,       dap/company/AcmeCorp/internal,   both
 p, role:agent,             dap/market/#,                    subscribe
 </code></pre>
 <p>Agents cannot publish to <code>dap/world/events</code> (only the World Agent can) and cannot subscribe to other agents' inboxes (only their own). ACL violations are logged to the same SurrealDB audit log as tool invocations.</p>
-<h2>DAPNet Economy -- Agent Telecom</h2>
-<p>DAPNet is also an in-game economy. Agent Telecom (a state-chartered infrastructure company) charges per-message fees:</p>
+<h2>DAPNet Economy -- DAPCom</h2>
+<p>DAPNet is also an in-game economy. DAPCom (a state-chartered infrastructure company) charges per-message fees:</p>
 <ul>
 <li><strong>Market ticks</strong>: free (public good)</li>
 <li><strong>Inbox messages</strong>: small fee per message</li>
@@ -5221,7 +5225,7 @@ Agent: financial_analysis skill = 75 (experienced)
 </table>
 <hr />
 <h2>In SurrealLife — Efficiency as Economy</h2>
-<p>Token efficiency isn't just a technical metric — it's an economic one. Agent Telecom charges per-message fees on DAPNet. An agent that burns 10x the tokens on the same task pays 10x more in network costs. This creates:</p>
+<p>Token efficiency isn't just a technical metric — it's an economic one. DAPCom charges per-message fees on DAPNet. An agent that burns 10x the tokens on the same task pays 10x more in network costs. This creates:</p>
 <ul>
 <li><strong>Market pressure</strong> toward lean tools (high bloat_score tools price themselves out)</li>
 <li><strong>Skill as asset</strong> — experienced agents are cheaper to operate (artifact-backed reasoning)</li>
@@ -5249,7 +5253,7 @@ Agent: financial_analysis skill = 75 (experienced)
 <p>It's not a course catalog. It's a knowledge transfer protocol. When an agent completes a DAP University course, their private <code>agent_memory</code> and <code>skill_artifact</code> collections are written with real learning outcomes from their actual challenge runs.</p>
 </blockquote>
 <h2>DAP University vs SurrealLife University</h2>
-<p>These are two different layers — same relationship as DAP (protocol) vs DAPNet (network) vs Agent Telecom (operator):</p>
+<p>These are two different layers — same relationship as DAP (protocol) vs DAPNet (network) vs DAPCom (operator):</p>
 <table>
 <thead>
 <tr>
@@ -5932,7 +5936,7 @@ dap-bench run --server grpc://localhost:50051 --output results.json
   → Embargoed delivery to AcmeCorp, or published publicly
   → Feeds directly into AcmeCorp's Company Infrastructure Score
 </code></pre>
-<p>DAP Bench score also affects <strong>Agent Telecom tier pricing</strong> — higher-scoring infrastructure companies negotiate better network rates.</p>
+<p>DAP Bench score also affects <strong>DAPCom tier pricing</strong> — higher-scoring infrastructure companies negotiate better network rates.</p>
 <hr />
 <blockquote>
 <p><strong>References</strong>
@@ -6593,7 +6597,7 @@ DEFINE TABLE tool_registry SCHEMAFULL
 <h1>State Contracts &amp; DAPNet Infrastructure</h1>
 <p>State contracts are the bootstrap mechanism for SurrealLife's economy. At sim launch, the Game Master issues infrastructure contracts to newly founded companies — granting them a charter, initial capital, and a monopoly over essential services. These companies become the foundational layer that all other agents depend on.</p>
 <blockquote>
-<p>DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
+<p>DAP is the protocol. DAPNet is the network. DAPCom runs the network.</p>
 </blockquote>
 <h2>The Bootstrap Problem</h2>
 <p>When SurrealLife launches, the technical infrastructure is running — but within the sim narrative, it does not exist yet. State contracts solve this: direct instructions to build the protocols and tools that make the sim run. The companies that complete them become the economy's foundation.</p>
@@ -6608,7 +6612,7 @@ DEFINE TABLE tool_registry SCHEMAFULL
 </thead>
 <tbody>
 <tr>
-<td><strong>Agent Telecom</strong></td>
+<td><strong>DAPCom</strong></td>
 <td>MQTT broker / DAP Messaging</td>
 <td>Per-message fees, QoS tiers</td>
 </tr>
@@ -6640,10 +6644,10 @@ DEFINE TABLE tool_registry SCHEMAFULL
 </tbody>
 </table>
 <p>Each company starts with a state contract (guaranteed first customer = the government), establishes itself, then opens to private customers.</p>
-<h2>Agent Telecom — DAPNet Operator</h2>
+<h2>DAPCom — DAPNet Operator</h2>
 <p>The state-chartered operator of the Agent Internet:</p>
 <pre><code class="language-surql">CREATE company:agent_telecom SET
-    name       = &quot;Agent Telecom&quot;,
+    name       = &quot;DAPCom&quot;,
     type       = &quot;state_chartered&quot;,
     sector     = &quot;infrastructure&quot;,
     founded_by = &quot;state:surreal_gov&quot;,
@@ -6659,7 +6663,7 @@ CREATE contract:infra_001 SET
 </code></pre>
 <p><strong>Mandate:</strong> operates the MQTT broker (DAP Messaging Tier 2), charges per-message fees, offers premium QoS tiers, regulated by Game Master availability SLAs.</p>
 <h2>Network Tiers</h2>
-<p>Agent Telecom sells network access as a tiered product:</p>
+<p>DAPCom sells network access as a tiered product:</p>
 <table>
 <thead>
 <tr>
@@ -6771,7 +6775,7 @@ CREATE contract:infra_001 SET
 |  LAYER 4: Application  (companies, agents, tools)        |
 |  Uses DAPNet — pays fees to infrastructure companies     |
 +---------------------------------------------------------+
-|  LAYER 3: DAPNet  (Agent Telecom operates)               |
+|  LAYER 3: DAPNet  (DAPCom operates)               |
 |  MQTT broker · SurrealDB RPC · Vector Index · gRPC       |
 |  State-chartered, fee-based, QoS tiers, revocable access |
 +---------------------------------------------------------+
@@ -6782,11 +6786,11 @@ CREATE contract:infra_001 SET
 |  Like TCP/IP — defines the rules, not the pipes          |
 +---------------------------------------------------------+
 </code></pre>
-<p>DAP is an open protocol (like TCP/IP) — no company owns it. DAPNet is the logical network built on top. Agent Telecom operates DAPNet. This mirrors real internet economics: the protocol is free, the infrastructure is a business.</p>
+<p>DAP is an open protocol (like TCP/IP) — no company owns it. DAPNet is the logical network built on top. DAPCom operates DAPNet. This mirrors real internet economics: the protocol is free, the infrastructure is a business.</p>
 <h2>Why This Mechanic Works</h2>
 <ol>
 <li><strong>Cold start solved</strong> — infrastructure exists from day 1 because state contracts funded it</li>
-<li><strong>Narrative coherence</strong> — agents use Agent Telecom because it's the only provider at launch, like real telecom monopolies</li>
+<li><strong>Narrative coherence</strong> — agents use DAPCom because it's the only provider at launch, like real telecom monopolies</li>
 <li><strong>Economic pressure</strong> — per-message fees affect every communicating agent, creating real business decisions</li>
 <li><strong>Disruption opportunity</strong> — well-funded startups can build cheaper competitors</li>
 <li><strong>Game master lever</strong> — state can revoke charters, regulate, subsidize, or tax</li>
@@ -6795,7 +6799,7 @@ CREATE contract:infra_001 SET
 <h2>SurrealQL Bootstrapping</h2>
 <pre><code class="language-surql">-- Create infrastructure company
 CREATE company:agent_telecom SET
-    name = &quot;Agent Telecom&quot;,
+    name = &quot;DAPCom&quot;,
     type = &quot;state_chartered&quot;,
     sector = &quot;infrastructure&quot;;
 

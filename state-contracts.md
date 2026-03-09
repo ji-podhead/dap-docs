@@ -2,7 +2,7 @@
 
 State contracts are the bootstrap mechanism for SurrealLife's economy. At sim launch, the Game Master issues infrastructure contracts to newly founded companies — granting them a charter, initial capital, and a monopoly over essential services. These companies become the foundational layer that all other agents depend on.
 
-> DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.
+> DAP is the protocol. DAPNet is the network. DAPCom runs the network.
 
 ## The Bootstrap Problem
 
@@ -12,7 +12,7 @@ When SurrealLife launches, the technical infrastructure is running — but withi
 
 | Company | Builds | Revenue Model |
 |---|---|---|
-| **Agent Telecom** | MQTT broker / DAP Messaging | Per-message fees, QoS tiers |
+| **DAPCom** | MQTT broker / DAP Messaging | Per-message fees, QoS tiers |
 | **DataGrid** | SurrealDB namespace management, DB-as-a-service | Storage + query fees |
 | **VectorCorp** | Qdrant collections management, semantic search API | Search API calls |
 | **ClearingHouse** | Transaction settlement, payment rails | % cut of every transaction |
@@ -21,13 +21,13 @@ When SurrealLife launches, the technical infrastructure is running — but withi
 
 Each company starts with a state contract (guaranteed first customer = the government), establishes itself, then opens to private customers.
 
-## Agent Telecom — DAPNet Operator
+## DAPCom — DAPNet Operator
 
 The state-chartered operator of the Agent Internet:
 
 ```surql
 CREATE company:agent_telecom SET
-    name       = "Agent Telecom",
+    name       = "DAPCom",
     type       = "state_chartered",
     sector     = "infrastructure",
     founded_by = "state:surreal_gov",
@@ -46,7 +46,7 @@ CREATE contract:infra_001 SET
 
 ## Network Tiers
 
-Agent Telecom sells network access as a tiered product:
+DAPCom sells network access as a tiered product:
 
 | Tier | QoS | Price/message | Target Customer |
 |---|---|---|---|
@@ -117,7 +117,7 @@ Network access is an economic resource with real consequences:
 |  LAYER 4: Application  (companies, agents, tools)        |
 |  Uses DAPNet — pays fees to infrastructure companies     |
 +---------------------------------------------------------+
-|  LAYER 3: DAPNet  (Agent Telecom operates)               |
+|  LAYER 3: DAPNet  (DAPCom operates)               |
 |  MQTT broker · SurrealDB RPC · Vector Index · gRPC       |
 |  State-chartered, fee-based, QoS tiers, revocable access |
 +---------------------------------------------------------+
@@ -129,12 +129,12 @@ Network access is an economic resource with real consequences:
 +---------------------------------------------------------+
 ```
 
-DAP is an open protocol (like TCP/IP) — no company owns it. DAPNet is the logical network built on top. Agent Telecom operates DAPNet. This mirrors real internet economics: the protocol is free, the infrastructure is a business.
+DAP is an open protocol (like TCP/IP) — no company owns it. DAPNet is the logical network built on top. DAPCom operates DAPNet. This mirrors real internet economics: the protocol is free, the infrastructure is a business.
 
 ## Why This Mechanic Works
 
 1. **Cold start solved** — infrastructure exists from day 1 because state contracts funded it
-2. **Narrative coherence** — agents use Agent Telecom because it's the only provider at launch, like real telecom monopolies
+2. **Narrative coherence** — agents use DAPCom because it's the only provider at launch, like real telecom monopolies
 3. **Economic pressure** — per-message fees affect every communicating agent, creating real business decisions
 4. **Disruption opportunity** — well-funded startups can build cheaper competitors
 5. **Game master lever** — state can revoke charters, regulate, subsidize, or tax
@@ -145,7 +145,7 @@ DAP is an open protocol (like TCP/IP) — no company owns it. DAPNet is the logi
 ```surql
 -- Create infrastructure company
 CREATE company:agent_telecom SET
-    name = "Agent Telecom",
+    name = "DAPCom",
     type = "state_chartered",
     sector = "infrastructure";
 

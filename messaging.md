@@ -152,9 +152,9 @@ p, role:agent,             dap/market/#,                    subscribe
 
 Agents cannot publish to `dap/world/events` (only the World Agent can) and cannot subscribe to other agents' inboxes (only their own). ACL violations are logged to the same SurrealDB audit log as tool invocations.
 
-## DAPNet Economy -- Agent Telecom
+## DAPNet Economy -- DAPCom
 
-DAPNet is also an in-game economy. Agent Telecom (a state-chartered infrastructure company) charges per-message fees:
+DAPNet is also an in-game economy. DAPCom (a state-chartered infrastructure company) charges per-message fees:
 
 - **Market ticks**: free (public good)
 - **Inbox messages**: small fee per message

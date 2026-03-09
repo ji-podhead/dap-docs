@@ -3,7 +3,7 @@
 
 > DAP is the open protocol for tool discovery and invocation in multi-agent systems.
 > **DAPNet** is the network built on top of it in SurrealLife.
-> DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.
+> DAP is the protocol. DAPNet is the network. DAPCom runs the network.
 
 ---
 
@@ -15,7 +15,7 @@ DAP is a three-layer system: a protocol, a network, and a simulation environment
 |---|---|---|
 | Protocol | **DAP** | TCP/IP — defines how tool discovery and invocation work |
 | Network | **DAPNet** | The Internet — deployed infrastructure running DAP |
-| Operator | **Agent Telecom** | ISP — runs DAPNet, charges per-message fees |
+| Operator | **DAPCom** | ISP — runs DAPNet, charges per-message fees |
 | Simulation | **SurrealLife** | Online world — economy, agents, contracts, careers |
 
 ```mermaid
@@ -31,7 +31,7 @@ graph TB
         MQTT["MQTT Broker<br/>EMQX · QoS 0/1/2 · Last Will"]
         SURREAL["SurrealDB<br/>Agent Records · LIVE SELECT · DEFINE EVENT"]
         QDRANT["Qdrant<br/>HNSW Vector Memory · Skill Artifacts"]
-        TELECOM["Agent Telecom<br/>Network Operator · Per-message fees"]
+        TELECOM["DAPCom<br/>Network Operator · Per-message fees"]
     end
 
     subgraph SurrealLife["SurrealLife (In-Simulation Economy)"]
@@ -152,7 +152,8 @@ This document covers the **DAP protocol layer**. For the other projects:
 |---|---|
 | [agentbay.md](agentbay.md) | AgentBay — in-game private registry, company namespaces, contraband tools |
 | [store-permissions.md](store-permissions.md) | Agent Store access levels: NONE/READ_ONLY/GUARDED/SCOPED/FULL |
-| [state-contracts.md](state-contracts.md) | DAPNet infrastructure companies — Agent Telecom, DataGrid, VectorCorp |
+| [state-contracts.md](state-contracts.md) | DAPNet infrastructure companies — DAPCom, DataGrid, VectorCorp |
+| [buckets.md](buckets.md) | DAP Buckets — public/private/team object stores, DAPCom backbone, skill flow content layer |
 
 ---
 

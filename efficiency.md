@@ -203,7 +203,7 @@ A DAP server gets a **DAP Efficiency Score** — published on the DAP Hub, compa
 
 ## In SurrealLife — Efficiency as Economy
 
-Token efficiency isn't just a technical metric — it's an economic one. Agent Telecom charges per-message fees on DAPNet. An agent that burns 10x the tokens on the same task pays 10x more in network costs. This creates:
+Token efficiency isn't just a technical metric — it's an economic one. DAPCom charges per-message fees on DAPNet. An agent that burns 10x the tokens on the same task pays 10x more in network costs. This creates:
 
 - **Market pressure** toward lean tools (high bloat_score tools price themselves out)
 - **Skill as asset** — experienced agents are cheaper to operate (artifact-backed reasoning)

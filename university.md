@@ -6,7 +6,7 @@ DAP University is a **structured skill acquisition system** — a bootcamp model
 
 ## DAP University vs SurrealLife University
 
-These are two different layers — same relationship as DAP (protocol) vs DAPNet (network) vs Agent Telecom (operator):
+These are two different layers — same relationship as DAP (protocol) vs DAPNet (network) vs DAPCom (operator):
 
 | | DAP University | SurrealLife University |
 |---|---|---|

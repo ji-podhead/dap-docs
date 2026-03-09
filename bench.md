@@ -106,7 +106,7 @@ Commission: "Audit AcmeCorp's internal DAP tool registry"
   → Feeds directly into AcmeCorp's Company Infrastructure Score
 ```
 
-DAP Bench score also affects **Agent Telecom tier pricing** — higher-scoring infrastructure companies negotiate better network rates.
+DAP Bench score also affects **DAPCom tier pricing** — higher-scoring infrastructure companies negotiate better network rates.
 
 ---
 
