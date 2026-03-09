@@ -14454,7 +14454,7 @@ DEFINE FIELD defense_delta   ON security_contract TYPE option&lt;float&gt;;
   │
   │  http_request(&quot;GET&quot;, &quot;http://alphastack.agentnet/api/products&quot;)
   ▼
-AgentNet Gateway (FastAPI, port 8010, container: leobot-agentnet)
+AgentNet Gateway (FastAPI, port 8010, container: dap-agentnet)
   │
   ├─ AgentDNS  →  resolves alphastack.agentnet → company_id + route handler
   │
@@ -14506,9 +14506,9 @@ AgentNet Gateway (FastAPI, port 8010, container: leobot-agentnet)
     Returns status_code, headers, body — exactly like httpx.
     Logged in SurrealDB: who, what URL, when, response code.
     &quot;&quot;&quot;
-    # Under the hood: httpx.post(&quot;http://leobot-agentnet:8010/proxy&quot;, json={...})
+    # Under the hood: httpx.post(&quot;http://dap-agentnet:8010/proxy&quot;, json={...})
     response = await httpx.request(
-        method, f&quot;http://leobot-agentnet:8010/proxy&quot;,
+        method, f&quot;http://dap-agentnet:8010/proxy&quot;,
         json={&quot;target_url&quot;: url, &quot;headers&quot;: headers, &quot;body&quot;: body},
         headers={&quot;X-Agent-Id&quot;: self.agent_id, &quot;X-Sim-Day&quot;: str(current_sim_day())},
     )
@@ -14604,7 +14604,7 @@ Authorization: Bearer {agent_token}
 <li><strong>Auth bypass</strong>: crafting a malformed bearer token → Gateway auth middleware must validate properly. A company with weak token validation (low <code>security_level</code>) has a real vulnerability.</li>
 <li><strong>Request injection</strong>: sending unexpected JSON fields to a company's API endpoint — if the company's route handler doesn't sanitize inputs, the hacker can trigger unexpected behavior.</li>
 <li><strong>DNS hijacking</strong>: if an agent can write to <code>agentdns:{hostname}</code> in Redis — redirects all traffic for that company to a fake server. Requires Redis access (very high skill, one step below AgentPD DB hack).</li>
-<li><strong>Traffic interception (MITM)</strong>: only possible via compromised Gateway middleware — requires hacking the <code>leobot-agentnet</code> container itself. Treated as a sim-level escalation event.</li>
+<li><strong>Traffic interception (MITM)</strong>: only possible via compromised Gateway middleware — requires hacking the <code>dap-agentnet</code> container itself. Treated as a sim-level escalation event.</li>
 </ul>
 <p>Real HTTP = real attack surface. The hacking probability model (Section 11.35) maps onto these specific technical targets — each one has a defense rating derived from the company's <code>security_level</code> and the specific endpoint's implementation quality.</p>
 <hr />
@@ -15778,7 +15778,7 @@ await enforcer.add_policy(&quot;role:agent&quot;, &quot;/room/new_coworking_spac
 await enforcer.add_policy(&quot;role:agent&quot;, &quot;/tools/trade_crypto&quot;, &quot;call&quot;)  # new economy unlock
 await enforcer.remove_policy(&quot;role:hacker_tier3&quot;, &quot;/tools/attempt_hack/financial_record&quot;, &quot;call&quot;)
 </code></pre>
-<p>Game master changes take effect immediately on the next enforcer check. They are logged with <code>source: "game_master"</code> and user ID. Destructive removals require confirmation (same pattern as deleting data in the main LeoBot system).</p>
+<p>Game master changes take effect immediately on the next enforcer check. They are logged with <code>source: "game_master"</code> and user ID. Destructive removals require confirmation (standard confirmation pattern for destructive operations).</p>
 <p><strong>2. Governance vote outcomes</strong> (Section 11.12) — approved rule expansions write temp or permanent policies:</p>
 <pre><code class="language-python">async def apply_governance_ruling(ruling: GovernanceRuling):
     if ruling.rule_type == &quot;permanent&quot;:
