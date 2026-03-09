@@ -1,6 +1,9 @@
 # DAP — Dynamic Agent Protocol
 ### Reference Documentation
 
+> **These docs are a PRD — a design specification, not an implementation status report.**
+> Features described here are planned or in-progress. Nothing in this reference implies production readiness unless explicitly noted.
+
 > DAP is the open protocol for tool discovery and invocation in multi-agent systems.
 > DAP is the protocol. DAPNet is the network. DAPCom runs the network.
 > SurrealLife and DAP IDE are applications built on top.
@@ -9,14 +12,15 @@
 
 ## Overview
 
-DAP has four distinct layers. Mixing them up is the single biggest source of confusion in the docs.
+DAP has three distinct layers. Mixing them up is the single biggest source of confusion in the docs.
 
 | Layer | Name | Analogy | Docs |
 |---|---|---|---|
 | **Protocol** | DAP | TCP/IP — defines tool discovery + invocation rules | This reference |
 | **Network** | DAPNet | The Internet — deployed infrastructure running DAP | [dapnet.md](dapnet.md) |
 | **Operator** | DAPCom | ISP — runs DAPNet backbone, charges per-message fees | [state-contracts.md](state-contracts.md) |
-| **Applications** | SurrealLife · DAP IDE | Online worlds and tools built on DAP | [surreal-life.md](surreal-life.md) · [dap-ide.md](dap-ide.md) |
+
+**SurrealLife** and **DAP IDE** are applications built on these three layers — not layers themselves. See [Integrations](#integrations) below.
 
 ```mermaid
 graph TB
@@ -48,7 +52,7 @@ graph TB
 ```
 
 **Protocol vs Game — the key distinction:**
-Everything in the Protocol layer works in any deployment — your trading bot, your CI pipeline, DAP IDE. Game mechanics (careers, SurrealCoin, AgentBay contraband, state contracts, `simengine` phase) are SurrealLife-only. See [dap-games.md](dap-games.md) for the full split.
+Everything in the Protocol layer works in any deployment — a fintech application, a CI pipeline, DAP IDE. Game mechanics (careers, SurrealCoin, AgentBay contraband, state contracts, `simengine` phase) are SurrealLife-only. See [dap-games.md](dap-games.md) for the full split.
 
 ---
 
@@ -57,6 +61,7 @@ Everything in the Protocol layer works in any deployment — your trading bot, y
 | Doc | What it covers |
 |---|---|
 | [protocol.md](protocol.md) | gRPC service definition, DiscoverTools, SearchTools, GetToolSchema, InvokeTool |
+| [client.md](client.md) | Client SDK — protobuf stub generation, connection, auth, Python + TypeScript + JS examples |
 | [acl.md](acl.md) | Casbin + SurrealDB RBAC + Capabilities — three-layer ACL stack |
 | [tool-registration.md](tool-registration.md) | YAML tool definitions, handler types, bloat score — protocol vs game examples |
 | [tool-skill-binding.md](tool-skill-binding.md) | Tool–Skill Binding — skill gates, gain loop, artifact memory, tiers, public vs private |
@@ -67,6 +72,7 @@ Everything in the Protocol layer works in any deployment — your trading bot, y
 | Doc | What it covers |
 |---|---|
 | [skills.md](skills.md) | Skill store, score derivation — protocol gates + `[SurrealLife only]` endorsements/inheritance |
+| [skill-training.md](skill-training.md) | Skill Training — Trainer/GameMaker roles, gated acquisition, LLM-as-a-Judge, probation guardrails, chatbot mode |
 | [workflows.md](workflows.md) | Phase types: llm, rag, script, crew, subagent, proof_of_thought — `simengine` is SurrealLife-only |
 | [skill-flows.md](skill-flows.md) | Complete pipeline — discovery → artifact injection → workflow → PoT gate → skill gain |
 | [jinja.md](jinja.md) | Jinja2 as content layer — YAML/MD/Notebook templates, server-side rendering |
@@ -92,6 +98,7 @@ Everything in the Protocol layer works in any deployment — your trading bot, y
 | Doc | What it covers |
 |---|---|
 | [tasks.md](tasks.md) | Tasks — boss/orchestrator assignment, task graph (DAG), states, async fan-out, PoD delivery |
+| [planning.md](planning.md) | Planning — goal decomposition, plan records, checkpoints, resume, replanning, sprint plans |
 
 ## Proof Family
 
@@ -122,7 +129,9 @@ Everything in the Protocol layer works in any deployment — your trading bot, y
 | Doc | What it covers |
 |---|---|
 | [apps.md](apps.md) | DAP Apps — async DAPQueue, @job decorator, Worker Pool — **protocol feature, not a game thing** |
+| [packages.md](packages.md) | DAP Packages — git-based tool distribution, dap-package.yaml, dap install, PoD as delivery proof |
 | [logs.md](logs.md) | DAP Logs — structured audit on every op, SurrealDB + MQTT stream, LIVE SELECT, DEFINE EVENT alerts |
+| [dashboard.md](dashboard.md) | DAP Dashboard — real-time UI for logs, metrics, agents, deployments — **Planned** |
 | [observability.md](observability.md) | Observability — Langfuse traces + dataset eval, Haystack guardrail phases, combined stack |
 | [teams.md](teams.md) | DAP Teams — multi-tenant deployment |
 | [migrate.md](migrate.md) | Migration from MCP / LangChain / OpenAI Functions / Python |
@@ -136,7 +145,7 @@ Applications that use DAP as their backbone. These are **not** protocol docs —
 | Doc | What it is |
 |---|---|
 | [surreal-life.md](surreal-life.md) | SurrealLife — AI economy simulation. How agents, companies, AgentBay, and game modes use DAP |
-| [dap-ide.md](dap-ide.md) | DAP IDE — Vibe Coding tool for teams. How it uses DAP for agents, task graph, codebase RAG |
+| [dap-ide.md](dap-ide.md) | DAP IDE — Vibe Coding tool for teams. How it uses DAP for agents, task graph, codebase RAG — **Planned** |
 
 ### SurrealLife Sub-Docs
 

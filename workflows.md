@@ -132,6 +132,54 @@ Quality gate — scores the preceding reasoning chain. Does not do new work.
 
 Pass → artifact gets `proofed: true`, 1.5× skill gain, Hub badge, audit-grade.
 
+## Tool Availability in Workflow Phases
+
+Tool availability in workflow phases works exactly like skills — through `DiscoverTools`. The agent's skill scores gate which tools are visible, same as any other invocation. No separate filter needed.
+
+```yaml
+# Default (tools: inherit) — same tool context as parent InvokeTool call
+- id: analyze
+  type: llm
+  # tools omitted = inherit
+
+# Explicit re-discover for this phase — DiscoverTools runs with agent's current skill context
+- id: analyze
+  type: llm
+  tools: discover
+
+# Explicit whitelist — still subject to skill gate checks, can't bypass them
+- id: analyze
+  type: llm
+  tools:
+    - get_price_data
+    - calculate_rsi
+```
+
+Skill gates always apply — an agent with `finance: 30` cannot call a tool with `skill_min: 60` even if it is explicitly listed in the workflow.
+
+```mermaid
+graph LR
+    IT["InvokeTool\nmarket_analysis\nagent: finance=71"]
+    DT["DiscoverTools\nskill gates apply\nfinance>=40 → 12 tools"]
+    LLM["type: llm\ntools as function-calling schema\nLLM picks, server executes"]
+    SC["type: script\ntools as Python callables\nin sandbox"]
+    CR["type: crew\neach member runs DiscoverTools\nwith their own skill scores"]
+
+    IT --> DT --> LLM
+    IT --> SC
+    IT --> CR
+```
+
+`type: script` sandbox example:
+
+```python
+# Tools injected as callables — DAP server wraps each handler
+result  = tools.get_price_data(symbol="BTC", timeframe="1h")
+signals = tools.calculate_rsi(prices=result["prices"], period=14)
+```
+
+---
+
 ## Artifact Binding
 
 Tools can pull skill artifacts into their execution context:

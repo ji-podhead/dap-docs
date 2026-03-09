@@ -1,5 +1,7 @@
 # DAP Dashboard — Reference
 
+> **Status: Planned.** The DAP Dashboard is a designed application — not yet implemented.
+
 The DAP Dashboard is a real-time web UI for monitoring and operating a DAP deployment. It provides live views of logs, agent metrics, tool performance, and deployment state — and lets operators deploy DAP Apps, register tools, and manage teams without touching config files.
 
 > One UI for the full stack: see what every agent is doing, how much it costs, which tools are failing, and deploy new apps — all from a browser.

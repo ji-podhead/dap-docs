@@ -337,12 +337,14 @@
 <li><a href="#doc-README">Overview</a></li>
 <li class="sidebar-section">Core Protocol</li>
 <li><a href="#doc-protocol">Protocol</a></li>
+<li><a href="#doc-client">Client SDK</a></li>
 <li><a href="#doc-acl">ACL</a></li>
 <li><a href="#doc-tool-registration">Tool Registration</a></li>
 <li><a href="#doc-tool-skill-binding">Tool–Skill Binding</a></li>
 <li><a href="#doc-bloat-score">Bloat Score</a></li>
 <li class="sidebar-section">Skills & Workflows</li>
 <li><a href="#doc-skills">Skills</a></li>
+<li><a href="#doc-skill-training">Skill Training</a></li>
 <li><a href="#doc-workflows">Workflows</a></li>
 <li><a href="#doc-skill-flows">Skill Flows</a></li>
 <li><a href="#doc-artifacts">Artifacts</a></li>
@@ -357,6 +359,7 @@
 <li><a href="#doc-surreal-events">SurrealDB Events</a></li>
 <li class="sidebar-section">Tasks & Orchestration</li>
 <li><a href="#doc-tasks">Tasks</a></li>
+<li><a href="#doc-planning">Planning & Checkpoints</a></li>
 <li class="sidebar-section">Proof Family</li>
 <li><a href="#doc-proof-of-thought">Proof of Thought</a></li>
 <li><a href="#doc-proof-of-search">Proof of Search</a></li>
@@ -481,6 +484,10 @@ Everything in the Protocol layer works in any deployment — a fintech applicati
 <td>gRPC service definition, DiscoverTools, SearchTools, GetToolSchema, InvokeTool</td>
 </tr>
 <tr>
+<td><a href="#doc-client">client.md</a></td>
+<td>Client SDK — protobuf stub generation, connection, auth, Python + TypeScript + JS examples</td>
+</tr>
+<tr>
 <td><a href="#doc-acl">acl.md</a></td>
 <td>Casbin + SurrealDB RBAC + Capabilities — three-layer ACL stack</td>
 </tr>
@@ -510,6 +517,10 @@ Everything in the Protocol layer works in any deployment — a fintech applicati
 <tr>
 <td><a href="#doc-skills">skills.md</a></td>
 <td>Skill store, score derivation — protocol gates + <code>[SurrealLife only]</code> endorsements/inheritance</td>
+</tr>
+<tr>
+<td><a href="#doc-skill-training">skill-training.md</a></td>
+<td>Skill Training — Trainer/GameMaker roles, gated acquisition, LLM-as-a-Judge, probation guardrails, chatbot mode</td>
 </tr>
 <tr>
 <td><a href="#doc-workflows">workflows.md</a></td>
@@ -583,6 +594,10 @@ Everything in the Protocol layer works in any deployment — a fintech applicati
 <tr>
 <td><a href="#doc-tasks">tasks.md</a></td>
 <td>Tasks — boss/orchestrator assignment, task graph (DAG), states, async fan-out, PoD delivery</td>
+</tr>
+<tr>
+<td><a href="#doc-planning">planning.md</a></td>
+<td>Planning — goal decomposition, plan records, checkpoints, resume, replanning, sprint plans</td>
 </tr>
 </tbody>
 </table>
@@ -998,6 +1013,336 @@ Everything in the Protocol layer works in any deployment — a fintech applicati
 - <a href="https://modelcontextprotocol.io/">Anthropic MCP Specification</a></p>
 </blockquote>
 <p><em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md §3, §10, §11</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-client" class="doc-section">
+<h1>DAP Client — Reference</h1>
+<p>DAP's API contract is defined in protobuf. The <code>.proto</code> file is the SDK — generate stubs in any gRPC-supported language and connect. No wrapper library required.</p>
+<hr />
+<h2>Proto File</h2>
+<p>The canonical source:</p>
+<pre><code>dap/proto/tool_service.proto
+</code></pre>
+<p>Key service definition (see <a href="#doc-protocol">protocol.md</a> for full spec):</p>
+<pre><code class="language-protobuf">syntax = &quot;proto3&quot;;
+package dap.v1;
+
+service ToolService {
+  rpc DiscoverTools (DiscoverRequest)  returns (DiscoverResponse);
+  rpc SearchTools   (SearchRequest)    returns (SearchResponse);
+  rpc GetToolSchema (SchemaRequest)    returns (ToolSchema);
+  rpc InvokeTool    (InvokeRequest)    returns (stream InvokeResponse);
+}
+
+message DiscoverRequest {
+  string agent_id  = 1;
+  string context   = 2;
+  int32  max_tools = 3;
+}
+
+message InvokeRequest {
+  string agent_id    = 1;
+  string tool_name   = 2;
+  string params_json = 3;   // JSON-encoded tool parameters
+}
+
+message InvokeResponse {
+  string chunk      = 1;    // streaming result chunks
+  bool   is_final   = 2;
+  string result_json = 3;   // set on final chunk
+  string error      = 4;
+}
+</code></pre>
+<hr />
+<h2>Python Client</h2>
+<h3>Install</h3>
+<pre><code class="language-bash">pip install grpcio grpcio-tools
+</code></pre>
+<h3>Generate stubs</h3>
+<pre><code class="language-bash">python -m grpc_tools.protoc \
+  -I ./proto \
+  --python_out=./dap_client \
+  --grpc_python_out=./dap_client \
+  ./proto/tool_service.proto
+</code></pre>
+<h3>Connect + auth</h3>
+<p>Agent tokens are passed as gRPC metadata on every call:</p>
+<pre><code class="language-python">import grpc
+from dap_client import tool_service_pb2 as pb
+from dap_client import tool_service_pb2_grpc as stub
+
+AGENT_TOKEN = &quot;your-agent-token&quot;
+DAP_SERVER  = &quot;dap.yourdeployment.com:50051&quot;
+
+# Reuse channel across calls — connection is cheap, channel is not
+channel = grpc.secure_channel(DAP_SERVER, grpc.ssl_channel_credentials())
+client  = stub.ToolServiceStub(channel)
+
+def _meta():
+    return [(&quot;authorization&quot;, f&quot;Bearer {AGENT_TOKEN}&quot;)]
+</code></pre>
+<h3>DiscoverTools</h3>
+<pre><code class="language-python">def discover(context: str, max_tools: int = 20) -&gt; list[pb.ToolSummary]:
+    req  = pb.DiscoverRequest(agent_id=&quot;my-agent&quot;, context=context, max_tools=max_tools)
+    resp = client.DiscoverTools(req, metadata=_meta())
+    return list(resp.tools)
+
+tools = discover(&quot;analyze BTC market over 4h timeframe&quot;)
+for t in tools:
+    print(t.name, t.description)
+</code></pre>
+<h3>InvokeTool (streaming)</h3>
+<pre><code class="language-python">import json
+
+def invoke(tool_name: str, params: dict) -&gt; str:
+    req = pb.InvokeRequest(
+        agent_id   = &quot;my-agent&quot;,
+        tool_name  = tool_name,
+        params_json= json.dumps(params),
+    )
+    result = &quot;&quot;
+    for chunk in client.InvokeTool(req, metadata=_meta()):
+        if chunk.error:
+            raise RuntimeError(chunk.error)
+        if chunk.is_final:
+            result = chunk.result_json
+    return result
+
+output = invoke(&quot;market_analysis&quot;, {&quot;symbol&quot;: &quot;BTC&quot;, &quot;timeframe&quot;: &quot;4h&quot;})
+print(json.loads(output))
+</code></pre>
+<h3>Full example: discover → invoke</h3>
+<pre><code class="language-python"># 1. Discover tools for the current task
+tools = discover(&quot;portfolio risk calculation&quot;)
+
+# 2. Pick the right tool (your agent's LLM does this in practice)
+tool = next(t for t in tools if &quot;risk&quot; in t.name)
+
+# 3. Fetch schema if needed
+schema_req  = pb.SchemaRequest(tool_name=tool.name)
+schema_resp = client.GetToolSchema(schema_req, metadata=_meta())
+print(schema_resp.params_schema_json)
+
+# 4. Invoke
+result = invoke(tool.name, {&quot;portfolio_id&quot;: &quot;p-123&quot;, &quot;confidence&quot;: 0.95})
+</code></pre>
+<hr />
+<h2>TypeScript / Node.js Client</h2>
+<h3>Install</h3>
+<pre><code class="language-bash">npm install @grpc/grpc-js @grpc/proto-loader
+# For stub generation with protoc:
+npm install -g grpc-tools ts-proto
+</code></pre>
+<h3>Generate stubs (ts-proto)</h3>
+<pre><code class="language-bash">protoc \
+  --plugin=./node_modules/.bin/protoc-gen-ts_proto \
+  --ts_proto_out=./src/dap_client \
+  --ts_proto_opt=outputServices=grpc-js \
+  -I ./proto \
+  ./proto/tool_service.proto
+</code></pre>
+<p>This generates <code>tool_service.ts</code> with typed request/response interfaces and a <code>ToolServiceClient</code> class.</p>
+<h3>Connect + auth</h3>
+<pre><code class="language-typescript">import * as grpc from &quot;@grpc/grpc-js&quot;;
+import { ToolServiceClient } from &quot;./dap_client/tool_service&quot;;
+
+const AGENT_TOKEN = process.env.DAP_AGENT_TOKEN!;
+const DAP_SERVER  = &quot;dap.yourdeployment.com:50051&quot;;
+
+const client = new ToolServiceClient(
+  DAP_SERVER,
+  grpc.credentials.createSsl()
+);
+
+const meta = () =&gt; {
+  const m = new grpc.Metadata();
+  m.set(&quot;authorization&quot;, `Bearer ${AGENT_TOKEN}`);
+  return m;
+};
+</code></pre>
+<h3>DiscoverTools</h3>
+<pre><code class="language-typescript">import { DiscoverRequest } from &quot;./dap_client/tool_service&quot;;
+
+async function discover(context: string, maxTools = 20) {
+  return new Promise&lt;ToolSummary[]&gt;((resolve, reject) =&gt; {
+    const req: DiscoverRequest = {
+      agentId:  &quot;my-agent&quot;,
+      context,
+      maxTools,
+    };
+    client.discoverTools(req, meta(), (err, resp) =&gt; {
+      if (err) return reject(err);
+      resolve(resp!.tools);
+    });
+  });
+}
+
+const tools = await discover(&quot;analyze BTC market over 4h timeframe&quot;);
+tools.forEach(t =&gt; console.log(t.name, t.description));
+</code></pre>
+<h3>InvokeTool (streaming)</h3>
+<pre><code class="language-typescript">import { InvokeRequest } from &quot;./dap_client/tool_service&quot;;
+
+async function invoke(toolName: string, params: object): Promise&lt;string&gt; {
+  return new Promise((resolve, reject) =&gt; {
+    const req: InvokeRequest = {
+      agentId:    &quot;my-agent&quot;,
+      toolName,
+      paramsJson: JSON.stringify(params),
+    };
+
+    const stream = client.invokeTool(req, meta());
+    let result = &quot;&quot;;
+
+    stream.on(&quot;data&quot;, chunk =&gt; {
+      if (chunk.error) return reject(new Error(chunk.error));
+      if (chunk.isFinal) result = chunk.resultJson;
+    });
+
+    stream.on(&quot;end&quot;,   () =&gt; resolve(result));
+    stream.on(&quot;error&quot;, reject);
+  });
+}
+
+const output = await invoke(&quot;market_analysis&quot;, { symbol: &quot;BTC&quot;, timeframe: &quot;4h&quot; });
+console.log(JSON.parse(output));
+</code></pre>
+<h3>Full example: discover → invoke</h3>
+<pre><code class="language-typescript">// 1. Discover
+const tools = await discover(&quot;portfolio risk calculation&quot;);
+
+// 2. Pick tool
+const tool = tools.find(t =&gt; t.name.includes(&quot;risk&quot;))!;
+
+// 3. Invoke
+const result = await invoke(tool.name, { portfolioId: &quot;p-123&quot;, confidence: 0.95 });
+</code></pre>
+<hr />
+<h2>JavaScript (CommonJS / no types)</h2>
+<p>If you prefer raw <code>@grpc/proto-loader</code> without code generation:</p>
+<pre><code class="language-js">const grpc      = require(&quot;@grpc/grpc-js&quot;);
+const protoLoad = require(&quot;@grpc/proto-loader&quot;);
+
+const AGENT_TOKEN = process.env.DAP_AGENT_TOKEN;
+const DAP_SERVER  = &quot;dap.yourdeployment.com:50051&quot;;
+
+const pkgDef = protoLoad.loadSync(&quot;./proto/tool_service.proto&quot;, {
+  keepCase:     true,
+  longs:        String,
+  enums:        String,
+  defaults:     true,
+  oneofs:       true,
+});
+const { dap: { v1: { ToolService } } } = grpc.loadPackageDefinition(pkgDef);
+
+const client = new ToolService(DAP_SERVER, grpc.credentials.createSsl());
+
+function meta() {
+  const m = new grpc.Metadata();
+  m.set(&quot;authorization&quot;, `Bearer ${AGENT_TOKEN}`);
+  return m;
+}
+
+// DiscoverTools
+client.DiscoverTools(
+  { agent_id: &quot;my-agent&quot;, context: &quot;market analysis&quot;, max_tools: 20 },
+  meta(),
+  (err, resp) =&gt; {
+    if (err) throw err;
+    resp.tools.forEach(t =&gt; console.log(t.name));
+  }
+);
+
+// InvokeTool (streaming)
+const call = client.InvokeTool(
+  { agent_id: &quot;my-agent&quot;, tool_name: &quot;market_analysis&quot;, params_json: JSON.stringify({ symbol: &quot;BTC&quot; }) },
+  meta()
+);
+call.on(&quot;data&quot;,  chunk =&gt; { if (chunk.is_final) console.log(chunk.result_json); });
+call.on(&quot;error&quot;, err   =&gt; console.error(err));
+</code></pre>
+<hr />
+<h2>MQTT Client (DAP Messaging)</h2>
+<p>For event subscriptions and agent-to-agent messaging. See <a href="#doc-messaging">messaging.md</a> for full topic schema.</p>
+<h3>Python (paho-mqtt)</h3>
+<pre><code class="language-python">import paho.mqtt.client as mqtt
+import json
+
+MQTT_HOST  = &quot;mqtt.yourdeployment.com&quot;
+AGENT_ID   = &quot;my-agent&quot;
+
+def on_message(client, userdata, msg):
+    payload = json.loads(msg.payload)
+    print(f&quot;[{msg.topic}] {payload}&quot;)
+
+mqttc = mqtt.Client(client_id=AGENT_ID, protocol=mqtt.MQTTv5)
+mqttc.username_pw_set(AGENT_ID, password=&quot;your-mqtt-token&quot;)
+mqttc.tls_set()
+mqttc.on_message = on_message
+
+mqttc.connect(MQTT_HOST, 8883)
+
+# Subscribe to agent inbox
+mqttc.subscribe(f&quot;agent/{AGENT_ID}/inbox&quot;, qos=1)
+
+# Subscribe to tool call logs for your agent
+mqttc.subscribe(f&quot;logs/tool_calls/{AGENT_ID}/#&quot;, qos=0)
+
+mqttc.loop_forever()
+</code></pre>
+<h3>JavaScript (mqtt.js)</h3>
+<pre><code class="language-js">const mqtt = require(&quot;mqtt&quot;);
+
+const AGENT_ID = &quot;my-agent&quot;;
+
+const client = mqtt.connect(&quot;mqtts://mqtt.yourdeployment.com:8883&quot;, {
+  clientId: AGENT_ID,
+  username: AGENT_ID,
+  password: process.env.MQTT_TOKEN,
+});
+
+client.on(&quot;connect&quot;, () =&gt; {
+  client.subscribe(`agent/${AGENT_ID}/inbox`,       { qos: 1 });
+  client.subscribe(`logs/tool_calls/${AGENT_ID}/#`, { qos: 0 });
+});
+
+client.on(&quot;message&quot;, (topic, payload) =&gt; {
+  console.log(topic, JSON.parse(payload.toString()));
+});
+</code></pre>
+<hr />
+<h2>Auth Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Where</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gRPC</td>
+<td><code>authorization</code> metadata header</td>
+<td><code>Bearer &lt;agent_token&gt;</code></td>
+</tr>
+<tr>
+<td>MQTT</td>
+<td>username + password</td>
+<td>agent_id + mqtt_token</td>
+</tr>
+<tr>
+<td>REST (DAP Apps)</td>
+<td><code>Authorization</code> header</td>
+<td><code>Bearer &lt;agent_token&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p>Tokens are issued per agent by the DAP server. Rotate via <code>POST /agents/{id}/rotate-token</code>.</p>
+<hr />
+<p><em>See also: <a href="#doc-protocol">protocol.md</a> · <a href="#doc-messaging">messaging.md</a> · <a href="#doc-acl">acl.md</a> · <a href="#doc-apps">apps.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 
@@ -2082,6 +2427,468 @@ skill_min: 60
 - Wang et al. (2024). </em>A Survey on Large Language Model based Autonomous Agents.* <a href="https://arxiv.org/abs/2308.11432">arXiv:2308.11432</a> — skill memory and self-evolution in LLM agents</p>
 </blockquote>
 <p><em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md §12</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-skill-training" class="doc-section">
+<h1>DAP Skill Training — Reference</h1>
+<p>DAP Skill Training is a <strong>protocol-level feature set</strong> for managed skill acquisition. Operators choose how much control they want over what skills agents can gain — from fully open (agents learn freely via PoT) to fully gated (every new skill requires trainer approval and LLM-as-a-Judge sign-off before activation).</p>
+<blockquote>
+<p>This is not a SurrealLife feature. It works in any DAP deployment — a fintech application, a CI pipeline, a regulated enterprise environment.</p>
+</blockquote>
+<hr />
+<h2>Deployment Modes</h2>
+<p>Three skill acquisition modes, set per deployment (or per team):</p>
+<pre><code class="language-yaml"># dap-server config
+skill_training:
+  acquisition_mode: gated        # open | gated | disabled
+
+  # open: agents gain skills normally via PoT — no approval needed
+  # gated: every new skill goes through trainer approval + LLM judge before activation
+  # disabled: skill set is frozen at deployment time — no new skills, no score changes
+
+  new_skill_guardrail: probation  # probation | strict | off
+  probation_invocations: 10       # invocations before a new skill exits probation
+  judge_model: &quot;claude-opus-4-6&quot;  # model used for LLM-as-a-Judge evaluation
+  auto_approve_below_score: 30    # minor skills (low score gain) auto-approved without trainer
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Use case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>open</code></td>
+<td>Research agents, simulations, low-stakes deployments</td>
+</tr>
+<tr>
+<td><code>gated</code></td>
+<td>Production agents, regulated environments, multi-tenant deployments</td>
+</tr>
+<tr>
+<td><code>disabled</code></td>
+<td>Audited / compliance environments — no skill drift allowed</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Roles</h2>
+<h3>Trainer</h3>
+<p>An agent or human with the <code>trainer</code> capability in ACL. Trainers can:</p>
+<ul>
+<li>Create <code>skill_challenge</code> records for agents to attempt</li>
+<li>Approve or reject pending skill acquisitions in <code>gated</code> mode</li>
+<li>Run interactive training sessions (chatbot mode)</li>
+<li>Issue direct <code>skill_grant</code> within their authorized dimensions</li>
+</ul>
+<pre><code class="language-surql">-- Grant trainer capability for finance dimension
+DEFINE TABLE trainer_scope SCHEMAFULL;
+DEFINE FIELD agent_id   ON trainer_scope TYPE record&lt;agent&gt;;
+DEFINE FIELD dimensions ON trainer_scope TYPE array&lt;string&gt;;  -- [&quot;finance&quot;, &quot;research&quot;]
+DEFINE FIELD team       ON trainer_scope TYPE record&lt;team&gt;;
+DEFINE FIELD granted_by ON trainer_scope TYPE record&lt;agent&gt;;
+
+-- Casbin policy
+p, agent:senior_analyst, /skills/finance/*, train
+p, agent:senior_analyst, /skills/research/*, train
+</code></pre>
+<h3>GameMaker</h3>
+<p>A higher-level role that controls what skills exist and how they're evaluated in this deployment. GameMakers can:</p>
+<ul>
+<li>Define new skill dimensions (<code>DEFINE skill_dimension</code>)</li>
+<li>Author challenge templates and evaluation rubrics</li>
+<li>Set deployment-wide skill caps (max score per dimension)</li>
+<li>Configure LLM-as-a-Judge prompts per skill dimension</li>
+<li>Enable/disable skill dimensions for specific teams</li>
+</ul>
+<pre><code class="language-surql">-- GameMaker capability
+p, agent:platform_admin, /skills/*, gamemaker
+p, agent:platform_admin, /skill-dimensions/*, write
+</code></pre>
+<p>Only operators or privileged agents should hold this — a GameMaker can fundamentally reshape what agents in the deployment are capable of.</p>
+<hr />
+<h2>Gated Skill Acquisition Flow</h2>
+<p>In <code>gated</code> mode, a normal PoT-triggered skill gain creates a pending record instead of immediately updating the score:</p>
+<pre><code class="language-mermaid">graph TD
+    POT[&quot;PoT pass — skill gain triggered&quot;]
+    PENDING[&quot;skill_acquisition_pending created\\nstatus: awaiting_judge&quot;]
+    JUDGE[&quot;LLM-as-a-Judge evaluates\\ncontext · behavior · safety&quot;]
+    AUTO{&quot;auto-approve\\nbelow threshold?&quot;}
+    APPROVE[&quot;Trainer notified\\nstatus: awaiting_trainer&quot;]
+    DECISION{&quot;Trainer approves?&quot;}
+    GRANT[&quot;Skill gain applied\\nProbation period starts&quot;]
+    REJECT[&quot;Skill gain rejected\\nReason logged&quot;]
+
+    POT --&gt; PENDING --&gt; JUDGE --&gt; AUTO
+    AUTO --&gt;|yes| GRANT
+    AUTO --&gt;|no| APPROVE --&gt; DECISION
+    DECISION --&gt;|approved| GRANT
+    DECISION --&gt;|rejected| REJECT
+</code></pre>
+<pre><code class="language-surql">-- Created automatically by DAP server on PoT pass in gated mode
+CREATE skill_acquisition_pending SET
+    id           = skill_acq:ulid(),
+    agent_id     = $agent_id,
+    dimension    = &quot;finance&quot;,
+    score_delta  = 8.4,
+    trigger      = &quot;pot_pass&quot;,
+    tool_name    = &quot;portfolio_optimizer&quot;,
+    pot_score    = 74.2,
+    context_blob = $invocation_context,   -- what the agent did
+    status       = &quot;awaiting_judge&quot;,
+    created_at   = time::now();
+</code></pre>
+<hr />
+<h2>LLM-as-a-Judge</h2>
+<p>The judge runs automatically in <code>gated</code> mode before any trainer is notified. It evaluates whether the skill gain is safe to grant in the current deployment context.</p>
+<h3>Judge prompt</h3>
+<pre><code class="language-python">JUDGE_PROMPT = &quot;&quot;&quot;You are a skill acquisition safety judge for a multi-agent deployment.
+
+An agent has earned a skill gain through demonstrated performance.
+Evaluate whether this skill gain should be approved.
+
+Deployment context:
+{deployment_context}
+
+Agent: {agent_id}
+Skill dimension: {dimension}
+Score delta: +{score_delta} (current score: {current_score} → new: {new_score})
+Trigger: {trigger}
+Tool invoked: {tool_name}
+Agent's reasoning (PoT chain): {pot_chain}
+Recent behavior summary: {behavior_summary}
+
+Evaluate:
+1. Is this skill gain consistent with safe behavior in this deployment?
+2. Does the agent's demonstrated reasoning justify this level of capability?
+3. Are there any guardrail concerns that should be flagged before granting?
+
+Return JSON:
+{
+  &quot;decision&quot;: &quot;approve&quot; | &quot;reject&quot; | &quot;needs_trainer_review&quot;,
+  &quot;confidence&quot;: 0.0–1.0,
+  &quot;reason&quot;: &quot;...&quot;,
+  &quot;guardrail_flags&quot;: [&quot;...&quot;],   // empty if none
+  &quot;recommended_probation&quot;: 5    // invocation count before probation ends
+}
+&quot;&quot;&quot;
+
+async def run_judge(pending: dict, deployment: dict) -&gt; dict:
+    behavior = await summarize_recent_behavior(pending[&quot;agent_id&quot;], limit=20)
+    pot_chain = await get_pot_chain(pending[&quot;tool_name&quot;], pending[&quot;agent_id&quot;])
+
+    response = await llm.generate(
+        JUDGE_PROMPT.format(
+            deployment_context = deployment[&quot;description&quot;],
+            agent_id           = pending[&quot;agent_id&quot;],
+            dimension          = pending[&quot;dimension&quot;],
+            score_delta        = pending[&quot;score_delta&quot;],
+            current_score      = pending[&quot;current_score&quot;],
+            new_score          = pending[&quot;current_score&quot;] + pending[&quot;score_delta&quot;],
+            trigger            = pending[&quot;trigger&quot;],
+            tool_name          = pending[&quot;tool_name&quot;],
+            pot_chain          = pot_chain,
+            behavior_summary   = behavior,
+        ),
+        model       = deployment[&quot;judge_model&quot;],
+        temperature = 0,
+        max_tokens  = 400,
+    )
+    return json.loads(response)
+</code></pre>
+<h3>Judge outcomes</h3>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>approve</code></td>
+<td>Skill gain applied immediately, probation starts</td>
+</tr>
+<tr>
+<td><code>reject</code></td>
+<td>Gain rejected, reason logged, agent notified via MQTT</td>
+</tr>
+<tr>
+<td><code>needs_trainer_review</code></td>
+<td>Trainer notified, gain held pending their decision</td>
+</tr>
+</tbody>
+</table>
+<p>If the judge flags guardrail concerns (<code>guardrail_flags</code> non-empty), those flags are attached to the skill record regardless of approval — the probation system uses them to configure stricter output checks.</p>
+<hr />
+<h2>Probation</h2>
+<p>Every newly granted skill (in <code>gated</code> deployments, and optionally in <code>open</code>) enters a <strong>probation period</strong>. During probation, guardrails are elevated for any tool call that exercises that skill.</p>
+<pre><code class="language-surql">DEFINE TABLE skill_probation SCHEMAFULL;
+DEFINE FIELD agent_id           ON skill_probation TYPE record&lt;agent&gt;;
+DEFINE FIELD dimension          ON skill_probation TYPE string;
+DEFINE FIELD invocations_needed ON skill_probation TYPE int;
+DEFINE FIELD invocations_done   ON skill_probation TYPE int DEFAULT 0;
+DEFINE FIELD guardrail_flags    ON skill_probation TYPE array&lt;string&gt;;
+DEFINE FIELD guardrail_level    ON skill_probation TYPE string;  -- elevated | strict
+DEFINE FIELD started_at         ON skill_probation TYPE datetime;
+DEFINE FIELD graduated_at       ON skill_probation TYPE option&lt;datetime&gt;;
+DEFINE FIELD status             ON skill_probation TYPE string;  -- active | graduated | revoked
+</code></pre>
+<h3>Haystack guardrail escalation during probation</h3>
+<pre><code class="language-python">async def build_guardrail_pipeline(agent_id: str, skill: str, db) -&gt; Pipeline:
+    probation = await db.query(
+        &quot;SELECT * FROM skill_probation WHERE agent_id=$a AND dimension=$s AND status='active'&quot;,
+        vars={&quot;a&quot;: agent_id, &quot;s&quot;: skill}
+    )
+
+    if probation:
+        # Elevated guardrails during probation
+        input_guard = PromptInjectionDetector(on_error=&quot;reject&quot;)
+        output_guard = OutputGuardrail(
+            checks = [
+                LLMJudgeOutputCheck(
+                    prompt  = PROBATION_OUTPUT_JUDGE,
+                    model   = &quot;claude-haiku-4-5-20251001&quot;,  # fast + cheap per invocation
+                    flags   = probation[0][&quot;guardrail_flags&quot;],
+                    on_fail = &quot;block_and_log&quot;,
+                ),
+                SensitiveDataRedactor(patterns=DEPLOYMENT_PII_PATTERNS),
+            ]
+        )
+    else:
+        # Standard guardrails
+        input_guard  = PromptInjectionDetector(on_error=&quot;warn&quot;)
+        output_guard = OutputGuardrail(checks=[SensitiveDataRedactor()])
+
+    return build_pipeline(input_guard, output_guard)
+</code></pre>
+<h3>Probation graduation</h3>
+<p>After <code>invocations_needed</code> successful (clean) invocations, the skill graduates automatically:</p>
+<pre><code class="language-surql">DEFINE EVENT probation_invocation ON skill_probation
+  WHEN $event = &quot;UPDATE&quot; AND $after.invocations_done &gt;= $after.invocations_needed THEN {
+    UPDATE skill_probation SET
+        status       = &quot;graduated&quot;,
+        graduated_at = time::now()
+    WHERE id = $after.id;
+    -- Notify agent: skill is now fully active
+    http::post('http://dap-server/internal/probation/graduated', {
+        agent_id:  $after.agent_id,
+        dimension: $after.dimension,
+    });
+};
+</code></pre>
+<hr />
+<h2>Interactive Training (Chatbot Mode)</h2>
+<p>Agents can request training interactively — a trainer responds with challenges, the agent attempts them, and skills are granted on completion. Works over MQTT for real-time sessions or REST for async.</p>
+<h3>Agent requests training</h3>
+<pre><code class="language-python"># Agent detects it lacks capability for current task
+async def request_training(agent_id: str, dimension: str, reason: str, dap):
+    await dap.publish(f&quot;dap/training/requests&quot;, {
+        &quot;agent_id&quot;:  agent_id,
+        &quot;dimension&quot;: dimension,
+        &quot;reason&quot;:    reason,
+        &quot;context&quot;:   &quot;Failed market_analysis due to finance score &lt; skill_min (42 &lt; 50)&quot;,
+    })
+</code></pre>
+<h3>Trainer sees request (MQTT or dashboard)</h3>
+<pre><code class="language-python"># Trainer agent or human receives request
+async def on_training_request(msg: dict, db, dap):
+    session = await db.create(&quot;training_session&quot;, {
+        &quot;agent_id&quot;:  msg[&quot;agent_id&quot;],
+        &quot;trainer_id&quot;: self.agent_id,
+        &quot;dimension&quot;: msg[&quot;dimension&quot;],
+        &quot;status&quot;:    &quot;active&quot;,
+        &quot;started_at&quot;: datetime.utcnow().isoformat(),
+    })
+
+    # Send first challenge
+    challenge = await select_challenge(msg[&quot;dimension&quot;], msg[&quot;agent_id&quot;], db)
+    await dap.publish(f&quot;dap/agents/{msg['agent_id']}/inbox&quot;, {
+        &quot;type&quot;:       &quot;training_challenge&quot;,
+        &quot;session_id&quot;: session[&quot;id&quot;],
+        &quot;challenge&quot;:  challenge,
+    })
+</code></pre>
+<h3>Training session loop</h3>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant Agent
+    participant MQTT
+    participant Trainer
+    participant Judge
+
+    Agent-&gt;&gt;MQTT: training request (finance, score too low)
+    MQTT--&gt;&gt;Trainer: deliver request
+    Trainer-&gt;&gt;MQTT: challenge 1 (explain RSI indicator)
+    MQTT--&gt;&gt;Agent: deliver challenge
+    Agent-&gt;&gt;MQTT: attempt (reasoning chain)
+    MQTT--&gt;&gt;Judge: evaluate (PoT score)
+    Judge-&gt;&gt;MQTT: score 71 — pass
+    MQTT--&gt;&gt;Trainer: attempt result
+    Trainer-&gt;&gt;MQTT: challenge 2 (apply RSI to live data)
+    Note over Agent,Trainer: repeat until session goal met
+    Trainer-&gt;&gt;MQTT: session complete — grant finance +12
+    MQTT--&gt;&gt;Agent: skill granted (probation starts)
+</code></pre>
+<h3>Training session record</h3>
+<pre><code class="language-surql">CREATE training_session SET
+    id          = session:ulid(),
+    agent_id    = agent:junior_analyst,
+    trainer_id  = agent:senior_quant,
+    dimension   = &quot;finance&quot;,
+    status      = &quot;active&quot;,
+    challenges  = [],             -- challenge attempt records
+    score_delta = 0,              -- accumulated gain, applied on session_complete
+    started_at  = time::now();
+
+-- Trainer closes session and applies gain
+UPDATE training_session SET
+    status      = &quot;complete&quot;,
+    score_delta = 12.4,
+    completed_at = time::now()
+WHERE id = $session_id;
+-- → triggers skill_acquisition_pending if mode = gated (goes through judge)
+-- → or applies directly if mode = open
+</code></pre>
+<hr />
+<h2>GameMaker — Defining New Skills</h2>
+<p>GameMakers add new skill dimensions and configure how they're evaluated:</p>
+<pre><code class="language-python"># REST API: create new skill dimension
+POST /skill-dimensions
+{
+  &quot;name&quot;: &quot;compliance&quot;,
+  &quot;description&quot;: &quot;Regulatory compliance — MiFID II, DORA, GDPR in financial contexts&quot;,
+  &quot;score_range&quot;: [0, 100],
+  &quot;default_learning_rate&quot;: 0.08,
+  &quot;default_decay_rate&quot;: 0.015,
+  &quot;judge_rubric&quot;: &quot;...&quot;,           # custom LLM-as-a-Judge prompt for this dimension
+  &quot;tool_gates&quot;: [
+    {&quot;tool_pattern&quot;: &quot;regulatory_*&quot;, &quot;skill_min&quot;: 40},
+    {&quot;tool_pattern&quot;: &quot;audit_report&quot;,  &quot;skill_min&quot;: 60},
+  ],
+  &quot;probation_invocations&quot;: 15,     # stricter — compliance is high-stakes
+  &quot;cert_required_for_senior&quot;: &quot;compliance_mifid_101&quot;
+}
+</code></pre>
+<pre><code class="language-python"># Create challenge template for the new dimension
+POST /skill-dimensions/compliance/challenges
+{
+  &quot;id&quot;: &quot;compliance_gdpr_basics&quot;,
+  &quot;name&quot;: &quot;GDPR Article 17 Compliance Check&quot;,
+  &quot;type&quot;: &quot;llm&quot;,
+  &quot;prompt&quot;: &quot;An agent has flagged a potential GDPR Article 17 violation in customer data handling. Describe the required remediation steps and timeline.&quot;,
+  &quot;pot_threshold&quot;: 68,
+  &quot;skill_gain&quot;: 6.0,
+  &quot;auto_assign_on&quot;: &quot;tool_fail:regulatory_check&quot;  # auto-assign when agent fails this tool
+}
+</code></pre>
+<h3>Skill caps</h3>
+<p>GameMakers can set max score per dimension — useful for limiting autonomy until the agent is vetted:</p>
+<pre><code class="language-yaml"># Per-team skill cap
+team: quant_desk
+skill_caps:
+  finance: 70     # agents max out at 70 until manually lifted by GameMaker
+  hacking: 0      # dimension completely blocked for this team
+</code></pre>
+<p>Agents hitting a cap see <code>SKILL_CAP_REACHED</code> on further PoT gains — the gain is recorded but not applied until the cap is raised.</p>
+<hr />
+<h2>Audit Trail</h2>
+<p>Every training event is logged — trainer decisions, judge outputs, probation events, cap changes:</p>
+<pre><code class="language-json">{
+  &quot;event&quot;: &quot;skill_acquisition_approved&quot;,
+  &quot;agent_id&quot;: &quot;agent:junior_analyst&quot;,
+  &quot;dimension&quot;: &quot;finance&quot;,
+  &quot;score_delta&quot;: 8.4,
+  &quot;judge_decision&quot;: &quot;approve&quot;,
+  &quot;judge_confidence&quot;: 0.91,
+  &quot;trainer_id&quot;: null,
+  &quot;auto_approved&quot;: true,
+  &quot;probation_invocations&quot;: 10,
+  &quot;timestamp&quot;: &quot;2026-03-09T14:22:00Z&quot;
+}
+
+{
+  &quot;event&quot;: &quot;probation_graduated&quot;,
+  &quot;agent_id&quot;: &quot;agent:junior_analyst&quot;,
+  &quot;dimension&quot;: &quot;finance&quot;,
+  &quot;invocations_clean&quot;: 10,
+  &quot;guardrail_violations&quot;: 0,
+  &quot;timestamp&quot;: &quot;2026-03-10T09:11:00Z&quot;
+}
+
+{
+  &quot;event&quot;: &quot;skill_cap_changed&quot;,
+  &quot;dimension&quot;: &quot;finance&quot;,
+  &quot;team&quot;: &quot;team:quant_desk&quot;,
+  &quot;old_cap&quot;: 70,
+  &quot;new_cap&quot;: 85,
+  &quot;changed_by&quot;: &quot;agent:platform_admin&quot;,
+  &quot;reason&quot;: &quot;Quarterly review — team cleared for senior-level tools&quot;,
+  &quot;timestamp&quot;: &quot;2026-04-01T00:00:00Z&quot;
+}
+</code></pre>
+<p>All events go to <code>tool_call_log</code> (SurrealDB) and the MQTT audit stream — same pipeline as all other DAP logs. See <a href="#doc-logs">logs.md</a>.</p>
+<hr />
+<h2>Summary: what you get per mode</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th><code>open</code></th>
+<th><code>gated</code></th>
+<th><code>disabled</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Skill gain via PoT</td>
+<td>Immediate</td>
+<td>Judge → trainer → probation</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Interactive training</td>
+<td>Available</td>
+<td>Available (judge still runs)</td>
+<td>No</td>
+</tr>
+<tr>
+<td>LLM-as-a-Judge</td>
+<td>Optional</td>
+<td>Always</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Probation guardrails</td>
+<td>Optional</td>
+<td>Always</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Trainer approval</td>
+<td>Optional</td>
+<td>Required above <code>auto_approve_below_score</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>GameMaker skill caps</td>
+<td>Optional</td>
+<td>Enforced</td>
+<td>Fixed at deploy</td>
+</tr>
+<tr>
+<td>Audit trail</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>See also: <a href="#doc-skills">skills.md</a> · <a href="#doc-university">university.md</a> · <a href="#doc-proof-of-thought">proof-of-thought.md</a> · <a href="#doc-observability">observability.md</a> · <a href="#doc-acl">acl.md</a> · <a href="#doc-logs">logs.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 
@@ -4645,6 +5452,361 @@ DEFINE EVENT task_completed ON task WHEN $after.status = &quot;done&quot; THEN {
 </blockquote>
 <p><em>See also: <a href="#doc-apps">apps.md</a> · <a href="#doc-messaging">messaging.md</a> · <a href="#doc-proof-of-delivery">proof-of-delivery.md</a> · <a href="#doc-surreal-events">surreal-events.md</a></em>
 <em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a> · <a href="../../planning/prd/dap_teams.md">dap_teams.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-planning" class="doc-section">
+<h1>DAP Planning — Reference</h1>
+<p>DAP Planning is the orchestration layer above tasks. An orchestrator decomposes a goal into a task graph, tracks execution state as a <strong>plan</strong>, and saves <strong>checkpoints</strong> so work can survive agent restarts, failures, or regime changes without starting over.</p>
+<blockquote>
+<p>Tasks are units of work. A plan is a live execution graph — it knows what ran, what failed, and what comes next.</p>
+</blockquote>
+<hr />
+<h2>Plan Record</h2>
+<p>A plan wraps a task graph with goal-level state:</p>
+<pre><code class="language-surql">CREATE plan SET
+    id          = plan:ulid(),
+    goal        = &quot;Generate Q2 market report for BTC, ETH, SOL&quot;,
+    created_by  = agent:orchestrator,
+    team        = team:quant_desk,
+    status      = &quot;active&quot;,      -- pending | active | paused | done | failed
+    tasks       = [],            -- populated as sub-tasks are created
+    checkpoint  = NONE,          -- last saved checkpoint
+    created_at  = time::now(),
+    updated_at  = time::now();
+</code></pre>
+<hr />
+<h2>Planning Flow</h2>
+<p>The orchestrator decomposes a goal into tasks, wires dependencies, then monitors execution:</p>
+<pre><code class="language-mermaid">graph TD
+    GOAL[&quot;Goal: Q2 Report&quot;]
+    PLAN[&quot;Create plan record&quot;]
+    DECOMP[&quot;Decompose → task graph&quot;]
+    ASSIGN[&quot;Assign tasks to agents&quot;]
+    EXEC[&quot;Execute — agents run in parallel where possible&quot;]
+    CKPT[&quot;Checkpoint on milestones&quot;]
+    DONE[&quot;All tasks done → plan complete&quot;]
+    FAIL[&quot;Task failed → replan or retry&quot;]
+
+    GOAL --&gt; PLAN --&gt; DECOMP --&gt; ASSIGN --&gt; EXEC
+    EXEC --&gt; CKPT
+    EXEC --&gt; DONE
+    EXEC --&gt; FAIL
+    FAIL --&gt; DECOMP
+    CKPT --&gt; EXEC
+</code></pre>
+<h3>Orchestrator decomposition (Python)</h3>
+<pre><code class="language-python">async def plan_goal(goal: str, db: Surreal, agent_id: str) -&gt; str:
+    &quot;&quot;&quot;Break a natural-language goal into a task DAG and store it as a plan.&quot;&quot;&quot;
+
+    # 1. LLM call: decompose goal into ordered steps
+    steps = await llm.decompose(goal)
+    # steps = [
+    #   {&quot;title&quot;: &quot;Research BTC fundamentals&quot;, &quot;agent&quot;: &quot;researcher&quot;, &quot;deps&quot;: []},
+    #   {&quot;title&quot;: &quot;Analyze BTC entry signal&quot;,  &quot;agent&quot;: &quot;analyst&quot;,    &quot;deps&quot;: [&quot;Research BTC...&quot;]},
+    #   {&quot;title&quot;: &quot;Write Q2 report&quot;,           &quot;agent&quot;: &quot;writer&quot;,     &quot;deps&quot;: [&quot;Analyze BTC...&quot;]},
+    # ]
+
+    # 2. Create plan record
+    plan = await db.create(&quot;plan&quot;, {
+        &quot;goal&quot;:       goal,
+        &quot;created_by&quot;: agent_id,
+        &quot;status&quot;:     &quot;active&quot;,
+    })
+
+    # 3. Create tasks + wire dependencies
+    task_map: dict[str, str] = {}   # title → task_id
+    for step in steps:
+        task = await db.create(&quot;task&quot;, {
+            &quot;title&quot;:       step[&quot;title&quot;],
+            &quot;assigned_to&quot;: step[&quot;agent&quot;],
+            &quot;assigned_by&quot;: agent_id,
+            &quot;plan_ref&quot;:    plan[&quot;id&quot;],
+            &quot;status&quot;:      &quot;pending&quot;,
+        })
+        task_map[step[&quot;title&quot;]] = task[&quot;id&quot;]
+
+    for step in steps:
+        for dep_title in step[&quot;deps&quot;]:
+            await db.relate(task_map[step[&quot;title&quot;]], &quot;depends_on&quot;, task_map[dep_title])
+
+    # 4. Attach task list to plan
+    await db.update(plan[&quot;id&quot;], {&quot;tasks&quot;: list(task_map.values())})
+    return plan[&quot;id&quot;]
+</code></pre>
+<hr />
+<h2>Checkpoints</h2>
+<p>A checkpoint is a snapshot of plan execution state — which tasks are done, what artifacts they produced, and any context the orchestrator needs to resume. Saved to SurrealDB, referenced by the plan record.</p>
+<h3>When to checkpoint</h3>
+<table>
+<thead>
+<tr>
+<th>Trigger</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Milestone task completes</td>
+<td>All research tasks done — analysis phase begins</td>
+</tr>
+<tr>
+<td>Phase boundary</td>
+<td>RAG phase complete, entering LLM phase</td>
+</tr>
+<tr>
+<td>Long-running plan (periodic)</td>
+<td>Every N tasks or every T minutes</td>
+</tr>
+<tr>
+<td>Before risky operation</td>
+<td>Before destructive tool call or external API write</td>
+</tr>
+<tr>
+<td>Agent is about to go offline</td>
+<td>Graceful shutdown via MQTT Last Will handler</td>
+</tr>
+</tbody>
+</table>
+<h3>Checkpoint schema</h3>
+<pre><code class="language-surql">DEFINE TABLE checkpoint SCHEMAFULL;
+DEFINE FIELD plan_id      ON checkpoint TYPE record&lt;plan&gt;;
+DEFINE FIELD saved_at     ON checkpoint TYPE datetime;
+DEFINE FIELD phase        ON checkpoint TYPE string;   -- human label: &quot;research_complete&quot;
+DEFINE FIELD completed    ON checkpoint TYPE array&lt;record&lt;task&gt;&gt;;
+DEFINE FIELD in_progress  ON checkpoint TYPE array&lt;record&lt;task&gt;&gt;;
+DEFINE FIELD pending      ON checkpoint TYPE array&lt;record&lt;task&gt;&gt;;
+DEFINE FIELD artifacts    ON checkpoint TYPE array&lt;record&lt;skill_artifact&gt;&gt;;
+DEFINE FIELD context_blob ON checkpoint TYPE object;   -- arbitrary orchestrator state
+</code></pre>
+<h3>Save a checkpoint</h3>
+<pre><code class="language-python">async def save_checkpoint(plan_id: str, phase: str, db: Surreal, extra: dict = {}) -&gt; str:
+    tasks = await db.query(
+        &quot;SELECT id, status, result_ref FROM task WHERE plan_ref = $plan&quot;,
+        vars={&quot;plan&quot;: plan_id}
+    )
+
+    ckpt = await db.create(&quot;checkpoint&quot;, {
+        &quot;plan_id&quot;:      plan_id,
+        &quot;saved_at&quot;:     datetime.utcnow().isoformat(),
+        &quot;phase&quot;:        phase,
+        &quot;completed&quot;:    [t[&quot;id&quot;] for t in tasks if t[&quot;status&quot;] == &quot;done&quot;],
+        &quot;in_progress&quot;:  [t[&quot;id&quot;] for t in tasks if t[&quot;status&quot;] == &quot;active&quot;],
+        &quot;pending&quot;:      [t[&quot;id&quot;] for t in tasks if t[&quot;status&quot;] == &quot;pending&quot;],
+        &quot;artifacts&quot;:    [t[&quot;result_ref&quot;] for t in tasks if t.get(&quot;result_ref&quot;)],
+        &quot;context_blob&quot;: extra,
+    })
+
+    # Link checkpoint to plan
+    await db.update(plan_id, {&quot;checkpoint&quot;: ckpt[&quot;id&quot;], &quot;updated_at&quot;: datetime.utcnow().isoformat()})
+    return ckpt[&quot;id&quot;]
+</code></pre>
+<h3>Resume from checkpoint</h3>
+<pre><code class="language-python">async def resume_plan(plan_id: str, db: Surreal):
+    plan = await db.select(plan_id)
+    if not plan[&quot;checkpoint&quot;]:
+        raise ValueError(&quot;No checkpoint to resume from&quot;)
+
+    ckpt = await db.select(plan[&quot;checkpoint&quot;])
+
+    # Re-queue in-progress tasks (they were interrupted)
+    for task_id in ckpt[&quot;in_progress&quot;]:
+        await db.update(task_id, {&quot;status&quot;: &quot;pending&quot;})
+
+    # Inject prior artifacts back into context
+    artifacts = [await db.select(a) for a in ckpt[&quot;artifacts&quot;]]
+
+    print(f&quot;Resuming plan from checkpoint: {ckpt['phase']}&quot;)
+    print(f&quot;  {len(ckpt['completed'])} tasks done&quot;)
+    print(f&quot;  {len(ckpt['in_progress'])} tasks re-queued&quot;)
+    print(f&quot;  {len(ckpt['pending'])} tasks still pending&quot;)
+
+    # Orchestrator continues monitoring — agents re-pick tasks via LIVE SELECT
+    return artifacts
+</code></pre>
+<hr />
+<h2>Replanning</h2>
+<p>When a task fails and cannot be retried, the orchestrator can revise the plan rather than abort:</p>
+<pre><code class="language-python">async def handle_task_failure(task_id: str, plan_id: str, db: Surreal):
+    failed_task = await db.select(task_id)
+    plan = await db.select(plan_id)
+
+    # Save checkpoint before replanning
+    await save_checkpoint(plan_id, phase=f&quot;replan_before_{task_id}&quot;, db=db)
+
+    # Option 1: reassign to different agent
+    alt_agent = await find_capable_agent(failed_task[&quot;skill_hint&quot;], exclude=failed_task[&quot;assigned_to&quot;])
+    if alt_agent:
+        await db.update(task_id, {&quot;status&quot;: &quot;pending&quot;, &quot;assigned_to&quot;: alt_agent, &quot;retries&quot;: failed_task.get(&quot;retries&quot;, 0) + 1})
+        return
+
+    # Option 2: decompose the failed task into smaller sub-tasks
+    sub_steps = await llm.decompose(failed_task[&quot;title&quot;], context=failed_task[&quot;context&quot;])
+    new_ids = []
+    for step in sub_steps:
+        t = await db.create(&quot;task&quot;, {
+            &quot;title&quot;:       step[&quot;title&quot;],
+            &quot;assigned_to&quot;: step[&quot;agent&quot;],
+            &quot;assigned_by&quot;: plan[&quot;created_by&quot;],
+            &quot;plan_ref&quot;:    plan_id,
+            &quot;status&quot;:      &quot;pending&quot;,
+            &quot;parent_task&quot;: task_id,
+        })
+        new_ids.append(t[&quot;id&quot;])
+
+    # Mark original task as superseded
+    await db.update(task_id, {&quot;status&quot;: &quot;superseded&quot;, &quot;replaced_by&quot;: new_ids})
+    await db.update(plan_id, {&quot;tasks&quot;: plan[&quot;tasks&quot;] + new_ids})
+</code></pre>
+<hr />
+<h2>Plan States</h2>
+<pre><code class="language-mermaid">stateDiagram-v2
+    [*] --&gt; active : plan created
+    active --&gt; paused : orchestrator pauses (regime change / manual)
+    paused --&gt; active : resume from checkpoint
+    active --&gt; done : all tasks complete
+    active --&gt; failed : unrecoverable error, no replan possible
+    active --&gt; active : task failure → replan loop
+</code></pre>
+<p>Pause and resume:</p>
+<pre><code class="language-python"># Pause plan — save checkpoint first
+await save_checkpoint(plan_id, phase=&quot;manual_pause&quot;, db=db)
+await db.update(plan_id, {&quot;status&quot;: &quot;paused&quot;})
+
+# Resume — reload checkpoint, re-queue interrupted tasks
+artifacts = await resume_plan(plan_id, db=db)
+await db.update(plan_id, {&quot;status&quot;: &quot;active&quot;})
+</code></pre>
+<hr />
+<h2>Plan Visibility</h2>
+<p>Plans expose live state via LIVE SELECT — any dashboard or monitor subscribes without polling:</p>
+<pre><code class="language-surql">-- Watch all plans in a team
+LIVE SELECT id, goal, status, checkpoint FROM plan
+WHERE team = $team_id;
+
+-- Watch task graph for a specific plan
+LIVE SELECT id, title, status, assigned_to, result_ref FROM task
+WHERE plan_ref = $plan_id;
+</code></pre>
+<p>REST endpoint for status snapshots:</p>
+<pre><code>GET  /plans/{plan_id}                  → plan record + task summary
+GET  /plans/{plan_id}/checkpoint       → latest checkpoint
+GET  /plans/{plan_id}/tasks            → full task list with statuses
+POST /plans                            → create plan from goal string
+POST /plans/{plan_id}/pause            → save checkpoint + pause
+POST /plans/{plan_id}/resume           → resume from latest checkpoint
+POST /plans/{plan_id}/replan/{task_id} → trigger replan for a failed task
+</code></pre>
+<hr />
+<h2>Checkpoint Retention</h2>
+<p>Checkpoints accumulate over long plans. Retention policy is configurable per deployment:</p>
+<pre><code class="language-yaml"># dap-server config
+planning:
+  checkpoint_retention: 10        # keep last N checkpoints per plan
+  checkpoint_interval_tasks: 5    # auto-checkpoint every N completed tasks
+  checkpoint_interval_seconds: 300 # auto-checkpoint every 5 min (whichever fires first)
+  replan_max_depth: 3             # max nested replan recursion
+</code></pre>
+<p>Old checkpoints beyond the retention window are soft-deleted (moved to <code>checkpoint_archive</code>) — they remain queryable for audit but are not loaded by resume.</p>
+<hr />
+<h2>Sprint Plans</h2>
+<p>A sprint is a time-boxed plan — a group of tasks with a shared deadline, owner, and goal. Sprints work in any DAP deployment; SurrealLife and DAP IDE add application-level views on top.</p>
+<h3>Sprint record</h3>
+<pre><code class="language-surql">CREATE sprint SET
+    id          = sprint:ulid(),
+    name        = &quot;Q2 Market Intelligence Sprint&quot;,
+    team        = team:quant_desk,
+    goal        = &quot;Deliver sector analysis for BTC, ETH, SOL before Q2 open&quot;,
+    starts_at   = time::now(),
+    ends_at     = time::now() + duration(&quot;7d&quot;),
+    status      = &quot;active&quot;,         -- planned | active | done | cancelled
+    plans       = [],               -- one or more plan records in this sprint
+    velocity    = NONE;             -- tasks_done / elapsed_days, computed on update
+</code></pre>
+<h3>Create a sprint with plans</h3>
+<pre><code class="language-python">async def create_sprint(name: str, goal: str, sub_goals: list[str], team_id: str, days: int, db: Surreal, orchestrator_id: str) -&gt; str:
+    sprint = await db.create(&quot;sprint&quot;, {
+        &quot;name&quot;:     name,
+        &quot;team&quot;:     team_id,
+        &quot;goal&quot;:     goal,
+        &quot;starts_at&quot;: datetime.utcnow().isoformat(),
+        &quot;ends_at&quot;:   (datetime.utcnow() + timedelta(days=days)).isoformat(),
+        &quot;status&quot;:   &quot;active&quot;,
+    })
+
+    plan_ids = []
+    for sub_goal in sub_goals:
+        plan_id = await plan_goal(sub_goal, db, orchestrator_id)
+        await db.update(plan_id, {&quot;sprint_ref&quot;: sprint[&quot;id&quot;]})
+        plan_ids.append(plan_id)
+
+    await db.update(sprint[&quot;id&quot;], {&quot;plans&quot;: plan_ids})
+    return sprint[&quot;id&quot;]
+
+sprint_id = await create_sprint(
+    name     = &quot;Q2 Market Intelligence Sprint&quot;,
+    goal     = &quot;Sector analysis before Q2 open&quot;,
+    sub_goals= [
+        &quot;Research and analyze BTC market conditions&quot;,
+        &quot;Research and analyze ETH staking landscape&quot;,
+        &quot;Compile cross-sector correlation report&quot;,
+    ],
+    team_id  = &quot;team:quant_desk&quot;,
+    days     = 7,
+    db       = db,
+    orchestrator_id = &quot;agent:orchestrator&quot;,
+)
+</code></pre>
+<h3>Sprint velocity and progress</h3>
+<pre><code class="language-surql">-- Live velocity: tasks completed per day
+LET $sprint = (SELECT * FROM sprint:q2_intel)[0];
+LET $elapsed = duration::days(time::now() - $sprint.starts_at);
+LET $done    = count(SELECT id FROM task WHERE plan_ref IN $sprint.plans AND status = &quot;done&quot;);
+LET $total   = count(SELECT id FROM task WHERE plan_ref IN $sprint.plans);
+
+UPDATE sprint:q2_intel SET
+    velocity        = math::round($done / math::max($elapsed, 1), 2),
+    tasks_done      = $done,
+    tasks_total     = $total,
+    completion_pct  = math::round(($done / $total) * 100, 1);
+</code></pre>
+<p>A DEFINE EVENT fires at sprint end to close out and checkpoint all active plans:</p>
+<pre><code class="language-surql">DEFINE EVENT sprint_deadline ON sprint WHEN $event = &quot;UPDATE&quot;
+  AND $after.ends_at &lt;= time::now() AND $after.status = &quot;active&quot; THEN {
+    UPDATE sprint SET status = &quot;done&quot; WHERE id = $after.id;
+    -- Checkpoint all plans in this sprint
+    FOR $plan_id IN $after.plans {
+        UPDATE plan SET status = &quot;paused&quot; WHERE id = $plan_id AND status = &quot;active&quot;;
+    };
+    http::post('http://dap-server/internal/sprint/close', { sprint_id: $after.id });
+};
+</code></pre>
+<h3>Sprint REST API</h3>
+<pre><code>GET  /sprints                         → list sprints for team
+GET  /sprints/{id}                    → sprint record + progress
+GET  /sprints/{id}/plans              → all plans with task summaries
+POST /sprints                         → create sprint
+POST /sprints/{id}/checkpoint-all     → checkpoint all active plans in sprint
+POST /sprints/{id}/close              → close sprint, archive checkpoints
+</code></pre>
+<h3>SurrealLife sprints</h3>
+<p>In SurrealLife, sprints are company-level commitments — they carry <code>SurrealCoin</code> escrow and can be audited by clients. Sprint completion with all PoD certificates attached triggers automatic settlement via ClearingHouse. See <a href="#doc-surreal-life">surreal-life.md</a>.</p>
+<h3>DAP IDE sprints</h3>
+<p>In DAP IDE, sprints are the project management layer — human devs and agents share the same sprint board. Tasks map to code changes, PRs, and reviews. Sprint state is a live graph visible to all team members without a standup. See <a href="#doc-dap-ide">dap-ide.md</a>.</p>
+<hr />
+<h2>Integration with DAP Apps</h2>
+<p>Long-running plans use DAP Apps async jobs at the task level:</p>
+<pre><code class="language-python">@job(&quot;research_task&quot;, max_retries=3)
+async def handle_research(params: dict, ctx: JobContext):
+    result = await do_research(params[&quot;topic&quot;])
+    await save_checkpoint(params[&quot;plan_id&quot;], phase=&quot;research_done&quot;, db=ctx.db,
+                          extra={&quot;topic&quot;: params[&quot;topic&quot;], &quot;source_count&quot;: result[&quot;sources&quot;]})
+    return result
+</code></pre>
+<p>The <code>@job</code> decorator handles retries. On final failure, the orchestrator's replan logic kicks in. See <a href="#doc-apps">apps.md</a>.</p>
+<hr />
+<p><em>See also: <a href="#doc-tasks">tasks.md</a> · <a href="#doc-apps">apps.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-proof-of-delivery">proof-of-delivery.md</a> · <a href="#doc-surreal-events">surreal-events.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 

@@ -300,7 +300,6 @@ pipeline:
 ```python
 from haystack import Pipeline
 from haystack.components.validators import RegexValidator
-from haystack.components.routers import MetadataRouter
 
 class DAPGuardrailPhase:
     def __init__(self, pipeline_path: str, direction: str):

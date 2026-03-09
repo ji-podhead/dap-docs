@@ -2,7 +2,7 @@
 
 DAP Logs are structured audit records generated automatically on every protocol operation — `InvokeTool`, `DiscoverTools`, skill gain events, task state transitions, PoD issuance. Every log entry is a first-class SurrealDB record, streamed via MQTT and queryable via LIVE SELECT.
 
-> LeoBot writes `audit_logs` to DuckDB via Redis EventBridge. DAP Logs do the same thing natively — SurrealDB as the log store, MQTT as the stream, LIVE SELECT as the live view. No EventBridge needed: the protocol emits logs itself.
+> A typical fintech application writes audit logs to a database via an event bridge. DAP Logs do the same thing natively — SurrealDB as the log store, MQTT as the stream, LIVE SELECT as the live view. No event bridge needed: the protocol emits logs itself.
 
 ---
 
@@ -178,23 +178,23 @@ Task state transitions emit their own log stream:
 
 ---
 
-## Efficiency vs LeoBot
+## Efficiency vs Typical Fintech Application
 
-LeoBot uses DuckDB + Redis EventBridge for audit logs. DAP Logs use SurrealDB natively — no bridge needed:
+A fintech application (e.g. a trading bot) typically routes audit events through an event bridge before persisting them. DAP Logs use SurrealDB natively — no bridge needed:
 
-| | LeoBot audit_logs | DAP Logs |
+| | Fintech app (typical) | DAP Logs |
 |---|---|---|
-| **Store** | DuckDB (`audit_logs` table) | SurrealDB (`tool_call_log`) |
-| **Stream** | Redis `leobot:grodt:events` → EventBridge | MQTT `dap/logs/{team}/stream` direct |
-| **Live view** | WebSocket → `logStore.js` → History Page | LIVE SELECT → any subscriber |
-| **Write path** | `_emit()` → Redis → EventBridge → `record_audit()` | DAP audit layer → direct INSERT |
-| **Query** | DuckDB SQL (offline) | SurrealDB live + batch |
+| **Store** | DuckDB / Postgres (separate audit table) | SurrealDB (`tool_call_log`) |
+| **Stream** | Redis pub/sub → event bridge → DB write | MQTT `dap/logs/{team}/stream` direct |
+| **Live view** | WebSocket → custom store → UI | LIVE SELECT → any subscriber |
+| **Write path** | `emit()` → queue → bridge → `record_audit()` | DAP audit layer → direct INSERT |
+| **Query** | SQL (offline only) | SurrealDB live + batch |
 | **Privacy** | Full params stored | Params hash only |
 | **Cost tracking** | Not tracked | `token_cost` per operation |
 | **ACL on logs** | App-level | SurrealDB PERMISSIONS (row-level) |
 | **Alert rules** | Manual polling | DEFINE EVENT on log table |
 
-The key efficiency gain: **no EventBridge**. The DAP audit layer writes directly into SurrealDB on every protocol operation — zero extra hops.
+The key efficiency gain: **no event bridge**. The DAP audit layer writes directly into SurrealDB on every protocol operation — zero extra hops.
 
 ---
 

@@ -1,5 +1,7 @@
 # DAP Skills — Reference
 
+> **Protocol vs Game:** Skill gates, gain events, and artifact memory are **DAP protocol features** — they work in any deployment. Boss endorsements, mentor grants, company inheritance, and career levels are **SurrealLife game-layer features**. See [dap-games.md](dap-games.md) for the full split.
+
 Skills in DAP are not just scores. They are a structured knowledge store with public visibility, private artifacts, inheritance mechanics, and a derived score that no one can directly manipulate.
 
 ## Structure
@@ -33,6 +35,68 @@ base_score updates after each task:
   positive task → up, negative → down, slow decay over time
 ```
 
+## Adaptive Learning
+
+When conditions change, agents adapt through three mechanisms — no direct score override needed:
+
+### 1. Adaptive Learning Rate
+
+`learning_rate` is configurable per agent and per dimension. Higher rate = faster adaptation:
+
+```surql
+UPDATE agent SET
+    skill_config.finance.learning_rate = 0.25,  -- default: 0.1, higher = faster adapt
+    skill_config.finance.decay_rate    = 0.02   -- score decay per idle day
+WHERE id = $agent_id;
+```
+
+An operator can temporarily raise `learning_rate` when deploying an agent into a new domain — old knowledge decays faster, new experience has more weight.
+
+### 2. Regime Shift Signal
+
+An agent can emit a `SkillRegimeShift` event when it detects its artifacts are no longer working (e.g. PoT scores consistently below threshold):
+
+```python
+# Agent-side: detect regime shift
+if rolling_avg_pot_score < 0.4 and window_size >= 10:
+    await dap.emit(SkillRegimeShift(
+        agent_id=self.id,
+        dimension="finance",
+        reason="pot_scores_degraded",
+        suggested_action="raise_learning_rate"
+    ))
+```
+
+The DAP server handles this by:
+- Temporarily raising `learning_rate` for that dimension (e.g. 0.1 → 0.3)
+- Flagging old artifacts as `stale` — still retrievable, ranked lower in HNSW injection
+- Logging to `tool_call_log` with `outcome: regime_shift`
+
+### 3. Operator Override
+
+Operators can directly adjust scores and artifact state via API (audit-logged):
+
+```
+PATCH /api/agents/{id}
+{
+  "skill_override": {
+    "finance": { "base_score": 45, "reason": "market regime change — reset to baseline" }
+  }
+}
+```
+
+Every override writes to `skill_audit_log` — who changed what, when, why. Score cannot be secretly manipulated.
+
+| Mechanism | Who triggers | Effect |
+|---|---|---|
+| Task outcome | Protocol (automatic) | Score nudged up/down by PoT quality |
+| Score decay | Protocol (time-based) | Idle skills slowly lose weight |
+| Adaptive learning rate | Operator or agent signal | New tasks weighted more heavily |
+| Regime shift signal | Agent (self-detected) | Old artifacts flagged stale, rate raised |
+| Operator override | Operator (manual) | Direct score adjustment, always audit-logged |
+
+---
+
 ## Public vs Private — SurrealDB PERMISSIONS
 
 ```surql
@@ -46,7 +110,7 @@ DEFINE TABLE skill PERMISSIONS
 
 Contacts see `public.*` only. The actual artifacts stay private.
 
-## Boss / PM Endorsement
+## Boss / PM Endorsement `[SurrealLife only]`
 
 PMs endorse — they never write scores directly:
 
@@ -59,7 +123,7 @@ CREATE skill_endorsement SET
     context     = "Led Q1 analysis — excellent methodology";
 ```
 
-## Skill Inheritance
+## Skill Inheritance `[SurrealLife only]`
 
 Three inheritance sources — all **graph references, not copies**:
 
@@ -81,7 +145,7 @@ FROM skill WHERE agent_id = $agent_id AND name = $skill;
 
 When an agent leaves a company, `->works_for->` is removed → inherited artifacts vanish automatically from the next crew context query. No cleanup job needed.
 
-## Mentor Grants
+## Mentor Grants `[SurrealLife only]`
 
 ```surql
 CREATE skill_grant SET

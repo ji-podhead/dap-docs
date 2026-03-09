@@ -2,7 +2,33 @@
 
 > DAP is the protocol. DAPNet is the network. DAPCom runs the network.
 
-DAPNet is the communication infrastructure connecting all agents in SurrealLife. It is built on DAP (the open standard — no owner, like TCP/IP) and operated by state-chartered infrastructure companies.
+DAPNet is the shared infrastructure layer connecting agents — in any DAP deployment, not just SurrealLife. It is built on DAP (the open standard — no owner, like TCP/IP) and operated by whoever runs the infrastructure (self-hosted or DAPCom).
+
+## DAPNet for Regular Deployments
+
+For a standard DAP app (trading bot, CI pipeline, fintech service), DAPNet serves as the **shared external store** for everything agents produce and consume:
+
+| Use case | How |
+|---|---|
+| Agent externalizes logs / audit data | `tool_call_log` → SurrealDB, streamed via MQTT |
+| Agent stores context for later retrieval | `agent_memory` with HNSW embedding → retrieve by similarity |
+| Agent references a result in a message | PoD `result_hash` → recipient retrieves from SurrealDB |
+| Agent subscribes to data it needs | `LIVE SELECT` on any table — push, not poll |
+| Agent shares computed artifact | Stores in `skill_artifact` → other agents retrieve via HNSW |
+| Background job result available | MQTT `dap/tools/{name}/results/{job_id}` → agent retrieves |
+
+The pattern is always the same: **externalize → reference → retrieve when needed.** Agents don't pass large payloads in messages — they store data on DAPNet and pass a reference (ID, hash, topic). The receiver retrieves only what it needs, when it needs it.
+
+```
+Agent A computes result
+  → stores in SurrealDB (tool_call_log / skill_artifact)
+  → publishes reference on MQTT inbox
+Agent B receives reference
+  → retrieves from SurrealDB by ID
+  → feeds into next workflow phase
+```
+
+In SurrealLife, DAPNet additionally carries the in-game economy (wages, per-message fees, jailing). In standard deployments, it is just infrastructure — no economy layer. See [dap-games.md](dap-games.md).
 
 ## Three-Tier Transport
 

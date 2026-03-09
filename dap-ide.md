@@ -1,5 +1,7 @@
 # DAP IDE — Integration Reference
 
+> **Status: Planned.** DAP IDE is a designed application — not yet implemented. The full spec is in the PRD below.
+
 DAP IDE is a Vibe Coding tool for teams — a complete dev environment where humans and agents develop, review, and deploy as equals. It uses DAP for all agent tool discovery and invocation, SurrealDB as its single source of truth, and Qdrant for codebase semantic search.
 
 > Not another agent framework — a complete environment where human decisions, agent reasoning, commits, PRs, and sprint state all live in the same graph.
