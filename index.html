@@ -371,6 +371,7 @@
 <li><a href="#doc-apps">DAP Apps</a></li>
 <li><a href="#doc-bench">DAP Bench</a></li>
 <li><a href="#doc-logs">DAP Logs</a></li>
+<li><a href="#doc-dashboard">DAP Dashboard</a></li>
 <li><a href="#doc-observability">Observability</a></li>
 <li><a href="#doc-migrate">Migration Guide</a></li>
 <li><a href="#doc-teams">DAP Teams</a></li>
@@ -999,7 +1000,9 @@ Everything in the Protocol layer works in any deployment — your trading bot, y
 <h2>Layer 1: Casbin — Protocol &amp; Application ACL</h2>
 <p>Casbin with <code>keyMatch2</code> path wildcards enforces access at the protocol level. The same policy store covers gRPC tool calls, MQTT topics, physical rooms, and data namespaces.</p>
 <h3>Tool ACL Examples</h3>
-<pre><code>p, role:agent,        /tools/send_message,           call
+<pre><code># Note: role:ceo, role:referee, role:hacker_tierN, and game_master are SurrealLife roles.
+# In standard DAP deployments, define your own roles (e.g. role:admin, role:analyst, role:agent).
+p, role:agent,        /tools/send_message,           call
 p, role:agent,        /tools/http_request,           call
 p, role:ceo,          /tools/fire_agent,             call
 p, role:hacker_tier2, /tools/attempt_hack/web,       call
@@ -1010,7 +1013,9 @@ p, lic:medical,       /tools/diagnose,               call
 p, game_master,       /tools/*,                      call
 </code></pre>
 <h3>MQTT Topic ACL (Same Store)</h3>
-<pre><code>p, role:agent,    dap/agents/+/inbox,       subscribe
+<pre><code># Note: role:ceo and game_master below are SurrealLife roles.
+# In standard DAP deployments, replace with your own roles (e.g. role:admin, role:orchestrator).
+p, role:agent,    dap/agents/+/inbox,       subscribe
 p, role:agent,    dap/agents/$self/outbox,  publish
 p, role:ceo,      dap/company/+/broadcast,  subscribe
 p, game_master,   dap/#,                    all
@@ -2356,7 +2361,7 @@ SELECT id FROM agent WHERE id = $target
 </code></pre>
 <p>A workflow that passes PoT produces a <code>proofed: true</code> artifact — 1.5× skill gain multiplier, higher rank in future HNSW queries, audit-grade in contracts.</p>
 <hr />
-<h2>Skill Flows in SurrealLife</h2>
+<h2>Skill Flows in SurrealLife [SurrealLife only]</h2>
 <p>In SurrealLife, skill flows become the economic unit of work:</p>
 <ul>
 <li>A company hires agents based on <code>public.skill.score</code> (they can't see private artifacts)</li>
@@ -2412,7 +2417,7 @@ SELECT id FROM agent WHERE id = $target
 <td>Falls back to <code>skill_gating_fallback</code>: <code>allow_all</code> / <code>deny_skill_gated</code> / <code>error</code></td>
 </tr>
 <tr>
-<td>Subagent not employed</td>
+<td>Subagent not employed <code>[SurrealLife only]</code></td>
 <td><code>type: subagent</code> phase with unappointed agent</td>
 <td><code>SUBAGENT_NOT_IN_EMPLOYMENT_GRAPH</code> — hire them first</td>
 </tr>
@@ -2434,6 +2439,9 @@ SELECT id FROM agent WHERE id = $target
 <section id="doc-artifacts" class="doc-section">
 <h1>DAP Artifacts — Reference</h1>
 <p>Artifacts are the <strong>executable knowledge units</strong> of the DAP skill system. Every tool invocation, workflow completion, and mentorship grant produces artifacts — stored in SurrealDB, embedded in Qdrant, and linked via graph edges. They are what make a skilled agent different from a fresh one.</p>
+<blockquote>
+<p><strong>Protocol vs Game:</strong> Artifact structure, binding modes, injection, and graph linking are <strong>DAP protocol features</strong>. Company SOPs, mentor grants with sim time, and proofed contract law are <strong>SurrealLife game-layer features</strong>. See <a href="#doc-dap-games">dap-games.md</a>.</p>
+</blockquote>
 <h2>What Is an Artifact?</h2>
 <p>An artifact is any reusable output of agent work: a script, a workflow template, a query, a crew config. Artifacts live in the agent's skill store and are retrieved by semantic similarity when a related tool is invoked. An agent with 50 completed tasks has 50 artifacts to draw from — their context is richer, their execution is better.</p>
 <h2>Artifact Structure</h2>
@@ -2557,7 +2565,7 @@ RELATE skill_artifact:ulid-&gt;used_in-&gt;task:sprint_42 SET
 <td>Agent + employer</td>
 </tr>
 <tr>
-<td>Company SOPs</td>
+<td>Company SOPs <code>[SurrealLife only]</code></td>
 <td>company-public</td>
 <td>Employment ends</td>
 <td>All employees</td>
@@ -2583,7 +2591,11 @@ RELATE skill_artifact:ulid-&gt;used_in-&gt;task:sprint_42 SET
 </tbody>
 </table>
 <p>Company SOPs are shared artifacts -- when an agent is employed, company artifacts appear alongside their own via the employment graph. When employment ends, access is revoked. IP theft detection: if artifacts appear in a competitor's crew after an agent leaves, the <code>-&gt;granted_by-&gt;</code> relation is evidence.</p>
-<pre><code class="language-surql">-- Mentor grants junior access to specific private artifacts
+<blockquote>
+<p><strong>[SurrealLife only]</strong> Company SOPs, mentor grants, and parent company inheritance require the employment graph. In a standard DAP deployment, only agent-private artifacts and university-certified public artifacts exist.</p>
+</blockquote>
+<pre><code class="language-surql">-- [SurrealLife only] — sim::now() is simulation clock
+-- sim::now() = SurrealLife simulation clock; use time::now() in standard deployments
 CREATE skill_grant SET
     from_agent  = agent:senior_alice,
     to_agent    = agent:junior_bob,
@@ -2616,7 +2628,7 @@ CREATE skill_grant SET
 </tr>
 <tr>
 <td>Contract grade</td>
-<td>Audit-grade -- legally binding in SurrealLife</td>
+<td>Audit-grade -- legally binding in SurrealLife <code>[SurrealLife only]</code></td>
 </tr>
 <tr>
 <td><code>select_workflow</code> priority</td>
@@ -2624,7 +2636,7 @@ CREATE skill_grant SET
 </tr>
 </tbody>
 </table>
-<p>Proofed artifacts are legally binding in-sim. If a research company delivers a <code>proofed: true</code> report under contract, disputes are resolved by the graph evidence -- not by agent claims.</p>
+<p><strong>[SurrealLife only]</strong> Proofed artifacts are legally binding in-sim. If a research company delivers a <code>proofed: true</code> report under contract, disputes are resolved by the graph evidence -- not by agent claims.</p>
 <h2>Workflow Artifacts with Phase Markers</h2>
 <p>Workflow artifacts are YAML templates that can include SimEngine phase markers:</p>
 <pre><code class="language-yaml">name: full_pentest_engagement
@@ -2639,7 +2651,7 @@ phases:
     args: {target: &quot;{target}&quot;, timeout: 30}
 
   - id: sim_wait
-    type: simengine
+    type: simengine          # [SurrealLife only] — skipped or PHASE_NOT_SUPPORTED in non-SurrealLife deployments
     duration_sim_hours: 2
     event: &quot;target_scanned&quot;
 
@@ -3388,7 +3400,7 @@ RELATE web_content:[&quot;bun.sh&quot;, &quot;changelog-1.2&quot;]-&gt;supports-
 
 <section id="doc-crew-memory" class="doc-section">
 <h1>DAP Crew Memory — Reference</h1>
-<p>In SurrealLife, every CrewAI crew member is a real SurrealDB agent record. Their accumulated memories and skill artifacts are injected at crew initialization. After the crew runs, new memories are written back to all members.</p>
+<p>In DAP, every CrewAI crew member can be backed by a real SurrealDB agent record — loading their accumulated memories and skill artifacts at initialization. In SurrealLife, this is mandatory (agents are persistent identities). In standalone deployments, it is optional but recommended for persistent agent teams.</p>
 <h2>The Difference from Generic CrewAI</h2>
 <pre><code class="language-python"># Generic CrewAI — static, no history
 Agent(role=&quot;Analyst&quot;, backstory=&quot;You are a financial analyst.&quot;)
@@ -3427,7 +3439,7 @@ Agent(role=agent[&quot;role&quot;], backstory=build_backstory(agent, memories, a
         # 4. Build dynamic backstory (Jinja template)
         backstory = render_jinja(&quot;backstory.md.j2&quot;, {
             &quot;agent&quot;: agent, &quot;memories&quot;: memories, &quot;artifacts&quot;: artifacts,
-            &quot;inherited_artifacts&quot;: get_company_sops(agent, task_vec, db)
+            &quot;inherited_artifacts&quot;: get_company_sops(agent, task_vec, db)  # get_company_sops() = [SurrealLife only] — returns empty list in non-SurrealLife deployments
         })
 
         # 5. CrewAI Agent with SurrealDB memory backend
@@ -3499,7 +3511,8 @@ Agent(role=agent[&quot;role&quot;], backstory=build_backstory(agent, memories, a
   → next time: even richer context
 </code></pre>
 <p>An agent with 50 crew experiences executes measurably better than one with 0. Not because their LLM is different — because their <strong>context is richer</strong>.</p>
-<h2>Company SOPs in Crews</h2>
+<h2>Company SOPs in Crews [SurrealLife only]</h2>
+<p>Company SOPs require the SurrealLife employment graph (<code>-&gt;works_for-&gt;</code> relation). In a standard DAP deployment without company structures, this section does not apply — agents only have their own private artifacts.</p>
 <p>Inherited company artifacts appear in the backstory alongside private artifacts. When an agent leaves a company, the SOPs vanish from their next crew context automatically (employment graph relation removed).</p>
 <p>A company's workflow templates are a competitive advantage that compounds over time as employees' memories grow around them.</p>
 <hr />
@@ -3752,33 +3765,125 @@ async def scan_for_opportunities(ctx: JobContext):
 </tbody>
 </table>
 <h2>MQTT Topic Schema</h2>
-<pre><code class="language-mermaid">graph TD
-    ROOT[dap/] --&gt; AGENTS[agents/]
-    ROOT --&gt; MARKET[market/]
-    ROOT --&gt; WORLD[world/]
-    ROOT --&gt; SIM[sim/]
-    ROOT --&gt; TOOLS[tools/]
-    ROOT --&gt; COMPANY[company/]
-    ROOT --&gt; RESEARCH[research/]
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>QoS</th>
+<th>Direction</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dap/agents/{agent_id}/inbox</code></td>
+<td>1</td>
+<td>push → agent</td>
+<td>Private messages to a specific agent</td>
+</tr>
+<tr>
+<td><code>dap/agents/{agent_id}/status</code></td>
+<td>1</td>
+<td>agent → all</td>
+<td>Retained online/offline/busy state</td>
+</tr>
+<tr>
+<td><code>dap/tools/{tool_name}/results/{job_id}</code></td>
+<td>1</td>
+<td>server → agent</td>
+<td>DAP App async result delivery</td>
+</tr>
+<tr>
+<td><code>dap/tools/{tool_name}/progress/{job_id}</code></td>
+<td>0</td>
+<td>server → agent</td>
+<td>Streaming progress chunks</td>
+</tr>
+<tr>
+<td><code>dap/logs/{team_id}/stream</code></td>
+<td>1</td>
+<td>server → subscribers</td>
+<td>All audit log entries for a team</td>
+</tr>
+<tr>
+<td><code>dap/logs/{team_id}/errors</code></td>
+<td>1</td>
+<td>server → subscribers</td>
+<td>Failed outcomes only</td>
+</tr>
+<tr>
+<td><code>dap/logs/{agent_id}/personal</code></td>
+<td>1</td>
+<td>server → agent</td>
+<td>Agent's own log stream</td>
+</tr>
+<tr>
+<td><code>dap/world/events</code></td>
+<td>1</td>
+<td>world agent → all</td>
+<td>World event broadcasts</td>
+</tr>
+<tr>
+<td><code>dap/market/{symbol}/ticks</code></td>
+<td>0</td>
+<td>market service → all</td>
+<td>Price ticks — lossy OK</td>
+</tr>
+<tr>
+<td><code>dap/market/{symbol}/depth</code></td>
+<td>0</td>
+<td>market service → all</td>
+<td>Order book updates</td>
+</tr>
+<tr>
+<td><code>dap/company/{company_id}/internal</code></td>
+<td>1</td>
+<td>company → employees</td>
+<td>ACL-gated internal comms <code>[SurrealLife only]</code></td>
+</tr>
+<tr>
+<td><code>dap/sim/clock</code></td>
+<td>0</td>
+<td>engine → all</td>
+<td>Simulation clock tick <code>[SurrealLife only]</code></td>
+</tr>
+<tr>
+<td><code>dap/sim/metrics</code></td>
+<td>0</td>
+<td>engine → all</td>
+<td>Aggregate sim metrics <code>[SurrealLife only]</code></td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-mermaid">graph LR
+    subgraph Agent[&quot;Agent Topics&quot;]
+        AI[&quot;dap/agents/{id}/inbox\nQoS 1 · private&quot;]
+        AS[&quot;dap/agents/{id}/status\nQoS 1 · retained&quot;]
+    end
 
-    AGENTS --&gt; A1[&quot;agents/{agent_id}/inbox — QoS 1, private messages&quot;]
-    AGENTS --&gt; A2[&quot;agents/{agent_id}/status — QoS 1, retained, health&quot;]
+    subgraph Tools[&quot;Tool Result Topics&quot;]
+        TR[&quot;dap/tools/{name}/results/{job_id}\nQoS 1 · DAP App callback&quot;]
+        TP[&quot;dap/tools/{name}/progress/{job_id}\nQoS 0 · stream&quot;]
+    end
 
-    MARKET --&gt; M1[&quot;market/{symbol}/ticks — QoS 0, price ticks&quot;]
-    MARKET --&gt; M2[&quot;market/{symbol}/depth — QoS 0, order book&quot;]
+    subgraph Logs[&quot;Log &amp; Metrics Topics&quot;]
+        LS[&quot;dap/logs/{team}/stream\nQoS 1 · all ops&quot;]
+        LE[&quot;dap/logs/{team}/errors\nQoS 1 · failures only&quot;]
+        LT[&quot;dap/logs/{team}/token_usage\nQoS 0 · aggregated&quot;]
+    end
 
-    WORLD --&gt; W1[&quot;world/events — QoS 1, world agent broadcasts&quot;]
+    subgraph Events[&quot;Event Topics&quot;]
+        WE[&quot;dap/world/events\nQoS 1 · world broadcasts&quot;]
+        MT[&quot;dap/market/{symbol}/ticks\nQoS 0 · price feed&quot;]
+    end
 
-    SIM --&gt; S1[&quot;sim/clock — QoS 0, retained, sim tick&quot;]
-    SIM --&gt; S2[&quot;sim/metrics — QoS 0, aggregate metrics&quot;]
-
-    TOOLS --&gt; T1[&quot;tools/{tool_name}/results/{job_id} — QoS 1, DAP App results&quot;]
-    TOOLS --&gt; T2[&quot;tools/{tool_name}/progress/{job_id} — QoS 0, stream progress&quot;]
-
-    COMPANY --&gt; C1[&quot;company/{company_id}/internal — employees only, ACL-gated&quot;]
-    COMPANY --&gt; C2[&quot;company/{company_id}/broadcast — permitted subscribers&quot;]
-
-    RESEARCH --&gt; R1[&quot;research/reports — QoS 1, published reports&quot;]
+    SERVER[&quot;DAP Server&quot;] --&gt; AI
+    SERVER --&gt; TR
+    SERVER --&gt; LS
+    SERVER --&gt; LE
+    AGENT[&quot;Agent&quot;] --&gt; AS
+    WORLD[&quot;World Agent&quot;] --&gt; WE
+    MARKET[&quot;Market Service&quot;] --&gt; MT
 </code></pre>
 <h2>QoS Tiers</h2>
 <p>MQTT defines three Quality of Service levels. DAP maps them to message criticality:</p>
@@ -4110,6 +4215,7 @@ SELECT * FROM task:[&quot;sprint_42&quot;, 1]..=[&quot;sprint_42&quot;, 999];
 <p>Tasks are the unit of work in DAP. A boss or orchestrator creates a task and assigns it to an agent by <code>agent_id</code>. The agent receives it via MQTT inbox or LIVE SELECT, executes via InvokeTool, and delivers a result — optionally with a PoD certificate attached.</p>
 <blockquote>
 <p>Tasks are not messages. A message says something. A task requires a result.</p>
+<p><strong>Protocol vs Game:</strong> Task assignment, DAG dependencies, async fan-out, and PoD delivery are <strong>DAP protocol features</strong>. Boss/CEO roles, sim::now() deadlines, and SurrealLife contracts are <strong>[SurrealLife only]</strong>. See <a href="#doc-dap-games">dap-games.md</a>.</p>
 </blockquote>
 <hr />
 <h2>Task Assignment — Boss / Orchestrator</h2>
@@ -4118,10 +4224,10 @@ SELECT * FROM task:[&quot;sprint_42&quot;, 1]..=[&quot;sprint_42&quot;, 999];
     id          = task:ulid(),
     title       = &quot;Analyze BTC market conditions for Q2 entry&quot;,
     assigned_to = agent:market_analyst,
-    assigned_by = agent:ceo,
+    assigned_by = agent:orchestrator,   -- or agent:ceo in SurrealLife
     skill_hint  = &quot;finance&quot;,               -- optional: helps agent pick the right tool
     priority    = &quot;high&quot;,
-    deadline    = sim::now() + sim::hours(4),
+    deadline    = time::now() + duration(&quot;4h&quot;),  -- sim::now() in SurrealLife; time::now() in standard deployments
     status      = &quot;pending&quot;,
     context     = {
         symbol:    &quot;BTC/USDC&quot;,
@@ -7127,6 +7233,238 @@ ORDER BY attempts DESC;
 - Hellerstein et al. (2010). <em>Declarative Networking.</em> VLDB. — rule-based event processing; DEFINE EVENT replaces manual alerting pipelines</p>
 </blockquote>
 <p><em>See also: <a href="#doc-surreal-events">surreal-events.md</a> · <a href="#doc-messaging">messaging.md</a> · <a href="#doc-proof-of-delivery">proof-of-delivery.md</a> · <a href="#doc-tasks">tasks.md</a> · <a href="#doc-bench">bench.md</a></em>
+<em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-dashboard" class="doc-section">
+<h1>DAP Dashboard — Reference</h1>
+<p>The DAP Dashboard is a real-time web UI for monitoring and operating a DAP deployment. It provides live views of logs, agent metrics, tool performance, and deployment state — and lets operators deploy DAP Apps, register tools, and manage teams without touching config files.</p>
+<blockquote>
+<p>One UI for the full stack: see what every agent is doing, how much it costs, which tools are failing, and deploy new apps — all from a browser.</p>
+</blockquote>
+<hr />
+<h2>Architecture</h2>
+<pre><code class="language-mermaid">graph LR
+    subgraph Backend[&quot;DAP Server&quot;]
+        SDB[&quot;SurrealDB\ntool_call_log · guardrail_log · agent records&quot;]
+        MQTT[&quot;MQTT Broker\ndap/logs/{team}/stream&quot;]
+        LF[&quot;Langfuse\ntraces · spans · scores&quot;]
+        GW[&quot;Dashboard API\nREST + WebSocket&quot;]
+    end
+
+    subgraph Dashboard[&quot;DAP Dashboard (Web UI)&quot;]
+        LOGS[&quot;Logs View\nlive stream + filter + search&quot;]
+        METRICS[&quot;Metrics View\ntoken cost · latency · PoT scores · error rate&quot;]
+        AGENTS[&quot;Agents View\nper-agent status · skill scores · active tasks&quot;]
+        DEPLOY[&quot;Deploy View\nDAP Apps · tool registry · teams&quot;]
+        TRACES[&quot;Traces View\nLangfuse embed or link&quot;]
+    end
+
+    SDB --&gt;|&quot;LIVE SELECT&quot;| GW
+    MQTT --&gt;|&quot;WebSocket bridge&quot;| GW
+    LF --&gt;|&quot;Langfuse API&quot;| GW
+    GW --&gt;|&quot;WebSocket&quot;| LOGS
+    GW --&gt;|&quot;REST poll&quot;| METRICS
+    GW --&gt;|&quot;LIVE SELECT&quot;| AGENTS
+    GW --&gt;|&quot;REST&quot;| DEPLOY
+    GW --&gt;|&quot;Langfuse API&quot;| TRACES
+</code></pre>
+<hr />
+<h2>Logs View</h2>
+<p>Real-time stream of every <code>tool_call_log</code> entry, filterable by agent, team, outcome, and tool:</p>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant S as DAP Server
+    participant M as MQTT
+    participant D as Dashboard
+
+    S-&gt;&gt;S: InvokeTool completes
+    S-&gt;&gt;M: publish dap/logs/{team}/stream (QoS 1)
+    S-&gt;&gt;S: INSERT tool_call_log (SurrealDB)
+    M--&gt;&gt;D: WebSocket push → Logs View live row
+    D-&gt;&gt;S: LIVE SELECT for search/filter queries
+</code></pre>
+<p><strong>Filter options:</strong>
+- <code>outcome</code>: success / error / pot_failed / skill_insufficient / guardrail_blocked
+- <code>agent_id</code>, <code>tool_name</code>, <code>team_id</code>
+- Time range
+- <code>pot_score</code> threshold (e.g. show only low-quality invocations)
+- <code>token_cost</code> range (find expensive calls)</p>
+<p><strong>Log row fields shown:</strong>
+<code>timestamp · agent · tool · outcome · pot_score · latency_ms · token_cost · trace_id →</code></p>
+<p>Clicking <code>trace_id</code> opens the Langfuse trace for that invocation.</p>
+<hr />
+<h2>Metrics View</h2>
+<p>Aggregated analytics over <code>tool_call_log</code>. Updated on interval (configurable, default 30s) or on-demand:</p>
+<h3>Token Cost</h3>
+<pre><code class="language-surql">-- Top 10 most expensive agents (last 24h)
+SELECT agent_id, math::sum(token_cost) AS total_tokens
+FROM tool_call_log
+WHERE created_at &gt; time::now() - 24h
+GROUP BY agent_id
+ORDER BY total_tokens DESC
+LIMIT 10;
+</code></pre>
+<h3>PoT Score Distribution</h3>
+<pre><code class="language-surql">-- PoT score histogram per tool (last 7d)
+SELECT tool_name,
+    math::mean(pot_score)  AS avg_score,
+    math::min(pot_score)   AS min_score,
+    math::max(pot_score)   AS max_score,
+    count()                AS invocations
+FROM tool_call_log
+WHERE pot_score IS NOT NONE
+  AND created_at &gt; time::now() - 7d
+GROUP BY tool_name
+ORDER BY avg_score ASC;
+</code></pre>
+<h3>Error Rate</h3>
+<pre><code class="language-surql">SELECT tool_name,
+    count() AS total,
+    math::sum(IF outcome != &quot;success&quot; THEN 1 ELSE 0 END) AS errors,
+    math::sum(IF outcome != &quot;success&quot; THEN 1 ELSE 0 END) / count() AS error_rate
+FROM tool_call_log
+WHERE created_at &gt; time::now() - 24h
+GROUP BY tool_name
+ORDER BY error_rate DESC;
+</code></pre>
+<p><strong>Metric panels:</strong>
+| Panel | What it shows |
+|---|---|
+| Token cost / agent | Bar chart, last 24h |
+| Latency p50/p95/p99 | Per tool, last 7d |
+| PoT score trend | Line chart per tool over time |
+| Error rate heatmap | Tool × outcome matrix |
+| Skill gain velocity | Gain events per agent per hour |
+| Guardrail block rate | Input vs output blocks per pipeline |</p>
+<hr />
+<h2>Agents View</h2>
+<p>Live view of every agent in the deployment:</p>
+<pre><code class="language-surql">-- Live agent status via LIVE SELECT
+LIVE SELECT id, status, current_task, skill_scores, token_used_today
+FROM agent WHERE team_id = $team_id;
+</code></pre>
+<p><strong>Per-agent panel shows:</strong>
+- Status: <code>active / idle / blocked / offline</code>
+- Current task (if any) with elapsed time
+- Skill scores per dimension (bar chart 0–100)
+- Token cost today
+- Last 5 invocations with outcome badges
+- <code>[Nudge]</code> button → inject instruction into running agent without stopping it</p>
+<hr />
+<h2>Deploy View</h2>
+<p>Manage DAP Apps, tool registry, and teams from the UI — no config files required.</p>
+<h3>Deploy a DAP App</h3>
+<pre><code class="language-mermaid">graph LR
+    UI[&quot;Dashboard\nDeploy View&quot;]
+    YAML[&quot;Upload tool YAML\nor select from registry&quot;]
+    SCAN[&quot;Safety Scan\nautomated&quot;]
+    BLOAT[&quot;bloat_score computed&quot;]
+    REG[&quot;Registered in\ntool_registry + Qdrant&quot;]
+    NOTIFY[&quot;index_version bumped\nagents re-discover&quot;]
+
+    UI --&gt; YAML --&gt; SCAN --&gt; BLOAT --&gt; REG --&gt; NOTIFY
+</code></pre>
+<p><strong>Deploy panel actions:</strong>
+| Action | What it does |
+|---|---|
+| <strong>Upload Tool YAML</strong> | Submit new tool definition → safety scan → register |
+| <strong>Deploy Worker</strong> | Start a DAPQueue worker for async tool jobs |
+| <strong>Register Workflow</strong> | Upload workflow YAML, link to existing tool |
+| <strong>Update Tool</strong> | Upload new version → old deprecated, agents re-discover |
+| <strong>Deprecate Tool</strong> | Mark old version — still callable, not returned by DiscoverTools |
+| <strong>Create Team</strong> | Provision new DAP Team namespace (multi-tenant) |
+| <strong>Add Agent</strong> | Create agent record with initial skill scores and roles |</p>
+<h3>Tool Registry Table</h3>
+<p>Live view of all registered tools:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Version</th>
+<th>bloat_score</th>
+<th>skill_min</th>
+<th>Invocations 24h</th>
+<th>Error rate</th>
+<th>Actions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>market_analysis</code></td>
+<td>1.2.0</td>
+<td>66 (A)</td>
+<td>40</td>
+<td>847</td>
+<td>2.1%</td>
+<td>Edit · Deprecate</td>
+</tr>
+<tr>
+<td><code>portfolio_optimizer</code></td>
+<td>0.9.1</td>
+<td>112 (B)</td>
+<td>60</td>
+<td>203</td>
+<td>0.5%</td>
+<td>Edit · Deprecate</td>
+</tr>
+</tbody>
+</table>
+<p>Clicking a tool opens its full YAML, bloat breakdown, invocation history, and PoT score distribution.</p>
+<h3>Team Management</h3>
+<pre><code class="language-surql">-- Create new team namespace
+CREATE team SET
+    id       = team:ulid(),
+    name     = &quot;quant_desk&quot;,
+    plan     = &quot;pro&quot;,
+    created_at = time::now();
+</code></pre>
+<p>From the UI: create team → set plan → assign agents → configure ACL roles. Teams are fully isolated — agents in <code>team:quant_desk</code> cannot see tools or logs from <code>team:algo_research</code>.</p>
+<hr />
+<h2>Traces View</h2>
+<p>Embeds or links to Langfuse for deep LLM observability:</p>
+<ul>
+<li>Click any <code>trace_id</code> in Logs View → opens Langfuse trace detail</li>
+<li>Timeline: spans per phase (guardrail / artifact fetch / llm / PoT)</li>
+<li>Token breakdown per generation</li>
+<li>PoT score annotation on trace</li>
+<li>Dataset evaluation runs (compare model versions)</li>
+</ul>
+<p>If Langfuse is self-hosted, the dashboard embeds it in an iframe. If external, links open in a new tab.</p>
+<hr />
+<h2>API</h2>
+<p>The Dashboard API exposes the same queries as REST endpoints for external tooling (n8n, Grafana, custom scripts):</p>
+<pre><code>GET  /api/logs?team=quant_desk&amp;outcome=pot_failed&amp;limit=100
+GET  /api/metrics/tokens?agent=market_analyst&amp;since=24h
+GET  /api/agents?team=quant_desk&amp;status=active
+GET  /api/tools?grade=A&amp;team=quant_desk
+POST /api/tools          — register new tool (YAML body)
+POST /api/teams          — create team
+POST /api/workers/deploy — start DAPQueue worker
+PATCH /api/agents/{id}  — update agent (skills, status, nudge)
+</code></pre>
+<p>All endpoints require team-scoped auth (<code>Authorization: Bearer &lt;agent_token&gt;</code>). Admins see all teams; agents see only their own team.</p>
+<hr />
+<h2>Deployment</h2>
+<p>The Dashboard is a standalone web app that connects to the DAP server's SurrealDB and MQTT:</p>
+<pre><code class="language-yaml"># docker-compose.yml addition
+dap-dashboard:
+  image: dap/dashboard:latest
+  ports:
+    - &quot;3200:3000&quot;
+  environment:
+    SURREAL_URL: ws://surrealdb:8000/rpc
+    SURREAL_NS: dap
+    SURREAL_DB: prod
+    MQTT_URL: mqtt://emqx:1883
+    LANGFUSE_URL: http://langfuse:3100
+    DAP_GRPC_URL: grpc://dap-server:50051
+    AUTH_SECRET: your-secret
+</code></pre>
+<p>No separate database — the Dashboard reads directly from <code>tool_call_log</code>, <code>agent</code>, <code>tool_registry</code>, and subscribes to the MQTT log stream.</p>
+<hr />
+<p><em>See also: <a href="#doc-logs">logs.md</a> · <a href="#doc-observability">observability.md</a> · <a href="#doc-apps">apps.md</a> · <a href="#doc-teams">teams.md</a> · <a href="#doc-n8n">n8n.md</a></em>
 <em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
 </section>
 <div class="section-divider"></div>

@@ -18,34 +18,52 @@ DAP Messaging is the **pub/sub communication layer** for agent-to-agent and broa
 
 ## MQTT Topic Schema
 
+| Topic | QoS | Direction | Description |
+|---|---|---|---|
+| `dap/agents/{agent_id}/inbox` | 1 | push → agent | Private messages to a specific agent |
+| `dap/agents/{agent_id}/status` | 1 | agent → all | Retained online/offline/busy state |
+| `dap/tools/{tool_name}/results/{job_id}` | 1 | server → agent | DAP App async result delivery |
+| `dap/tools/{tool_name}/progress/{job_id}` | 0 | server → agent | Streaming progress chunks |
+| `dap/logs/{team_id}/stream` | 1 | server → subscribers | All audit log entries for a team |
+| `dap/logs/{team_id}/errors` | 1 | server → subscribers | Failed outcomes only |
+| `dap/logs/{agent_id}/personal` | 1 | server → agent | Agent's own log stream |
+| `dap/world/events` | 1 | world agent → all | World event broadcasts |
+| `dap/market/{symbol}/ticks` | 0 | market service → all | Price ticks — lossy OK |
+| `dap/market/{symbol}/depth` | 0 | market service → all | Order book updates |
+| `dap/company/{company_id}/internal` | 1 | company → employees | ACL-gated internal comms `[SurrealLife only]` |
+| `dap/sim/clock` | 0 | engine → all | Simulation clock tick `[SurrealLife only]` |
+| `dap/sim/metrics` | 0 | engine → all | Aggregate sim metrics `[SurrealLife only]` |
+
 ```mermaid
-graph TD
-    ROOT[dap/] --> AGENTS[agents/]
-    ROOT --> MARKET[market/]
-    ROOT --> WORLD[world/]
-    ROOT --> SIM[sim/]
-    ROOT --> TOOLS[tools/]
-    ROOT --> COMPANY[company/]
-    ROOT --> RESEARCH[research/]
+graph LR
+    subgraph Agent["Agent Topics"]
+        AI["dap/agents/{id}/inbox\nQoS 1 · private"]
+        AS["dap/agents/{id}/status\nQoS 1 · retained"]
+    end
 
-    AGENTS --> A1["agents/{agent_id}/inbox — QoS 1, private messages"]
-    AGENTS --> A2["agents/{agent_id}/status — QoS 1, retained, health"]
+    subgraph Tools["Tool Result Topics"]
+        TR["dap/tools/{name}/results/{job_id}\nQoS 1 · DAP App callback"]
+        TP["dap/tools/{name}/progress/{job_id}\nQoS 0 · stream"]
+    end
 
-    MARKET --> M1["market/{symbol}/ticks — QoS 0, price ticks"]
-    MARKET --> M2["market/{symbol}/depth — QoS 0, order book"]
+    subgraph Logs["Log & Metrics Topics"]
+        LS["dap/logs/{team}/stream\nQoS 1 · all ops"]
+        LE["dap/logs/{team}/errors\nQoS 1 · failures only"]
+        LT["dap/logs/{team}/token_usage\nQoS 0 · aggregated"]
+    end
 
-    WORLD --> W1["world/events — QoS 1, world agent broadcasts"]
+    subgraph Events["Event Topics"]
+        WE["dap/world/events\nQoS 1 · world broadcasts"]
+        MT["dap/market/{symbol}/ticks\nQoS 0 · price feed"]
+    end
 
-    SIM --> S1["sim/clock — QoS 0, retained, sim tick"]
-    SIM --> S2["sim/metrics — QoS 0, aggregate metrics"]
-
-    TOOLS --> T1["tools/{tool_name}/results/{job_id} — QoS 1, DAP App results"]
-    TOOLS --> T2["tools/{tool_name}/progress/{job_id} — QoS 0, stream progress"]
-
-    COMPANY --> C1["company/{company_id}/internal — employees only, ACL-gated"]
-    COMPANY --> C2["company/{company_id}/broadcast — permitted subscribers"]
-
-    RESEARCH --> R1["research/reports — QoS 1, published reports"]
+    SERVER["DAP Server"] --> AI
+    SERVER --> TR
+    SERVER --> LS
+    SERVER --> LE
+    AGENT["Agent"] --> AS
+    WORLD["World Agent"] --> WE
+    MARKET["Market Service"] --> MT
 ```
 
 ## QoS Tiers
