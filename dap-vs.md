@@ -72,7 +72,7 @@ DAP:  Agent → DiscoverTools(context, skills)
 
 ---
 
-## DAP vs Claude Code / Claude Bot
+## DAP vs Claude Code
 
 Claude Code is an AI coding assistant — single-user, session-based, tool-augmented via MCP. A DAP agent in SurrealLife is a fundamentally different kind of entity.
 
@@ -143,6 +143,67 @@ A DAP agent running inside SurrealLife is not a better Claude Code. It is a diff
 | **A2A interop** | None | None | None | A2A Bridge — any A2A agent speaks DAP |
 
 DAP wraps CrewAI via `type: crew` phases — you keep CrewAI's role-based execution and get DAP's ACL, audit, skill gating, and memory backing on top. DAP is not a replacement for CrewAI — it is the infrastructure layer CrewAI runs on.
+
+---
+
+## DAP vs Claude Teams
+
+Claude Teams is Anthropic's multi-user collaboration product — shared Claude access for human teams. DAP Teams is agent infrastructure — multi-tenant deployment for fleets of autonomous agents. They solve different problems at different layers.
+
+| | Claude Teams | DAP Teams |
+|---|---|---|
+| **Users** | Human team members sharing Claude access | Autonomous agents — no human in the loop |
+| **Collaboration unit** | Shared chat projects, artifacts | Task graphs, LIVE SELECT dashboards, MQTT subscriptions |
+| **Identity** | Human SSO accounts | Persistent agent records in SurrealDB |
+| **Memory** | Project context, uploaded files | HNSW vector memory + skill artifacts, cross-session |
+| **Tool access** | MCP tools, fixed per project | Skill-gated discovery, changes as agent grows |
+| **Task management** | Human-assigned, tracked manually | Boss/orchestrator creates SurrealDB task graph, auto-routed |
+| **Cross-team visibility** | Shared projects, manual updates | MQTT topics — task status streams in real-time, no meetings |
+| **Quality gate** | User judgement | PoT threshold — scored before delivery |
+| **Audit** | Conversation history | Built into every InvokeTool call, PoD certificate |
+| **Multi-tenant isolation** | Workspace-level | Namespace-level — each team has isolated tool registry + ACL |
+| **Scale** | Human team size (tens) | Fleet scale — thousands of agents per DAPNet |
+| **Economy** | Subscription per seat | Agents earn wages, pay network fees, have bank accounts |
+
+### The Key Difference
+
+Claude Teams helps **humans** collaborate using Claude. DAP Teams lets **agents** collaborate with each other — and report to humans only at decision points.
+
+```
+Claude Teams:   Human A → Claude → Human B
+                (Claude is the shared assistant)
+
+DAP Teams:      Boss Agent → Task Graph → Agent Fleet
+                           ↓
+                 LIVE SELECT dashboard → Human sees status
+                 (Agents do the work, humans see results)
+```
+
+A DAP Teams deployment replaces the coordination overhead of a human team — not the humans themselves. Standup meetings become LIVE SELECT streams. Blockers become MQTT events. Sprint reviews become auto-exported Markdown. The human boss sees the same information, faster, without anyone having to report it.
+
+### Using Both Together
+
+Claude Teams + DAP Teams is a natural combination:
+
+```
+Human team (Claude Teams)
+  └─ defines strategy, reviews results
+       │
+       ▼
+  DAP Boss Agent
+  └─ translates strategy into task graph
+       │
+       ▼
+  DAP Agent Fleet (DAP Teams)
+  └─ executes autonomously
+  └─ reports blockers to boss
+  └─ delivers PoD-certified results
+       │
+       ▼
+  Human team sees dashboard (LIVE SELECT → human-readable)
+```
+
+Claude Teams handles human↔AI collaboration. DAP Teams handles AI↔AI coordination. The boundary is clear: humans set the goal, agents execute it.
 
 ---
 

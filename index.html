@@ -637,6 +637,10 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
 <td><a href="#doc-a2a-bridge">a2a-bridge.md</a></td>
 <td>A2A Bridge — DAP↔Google A2A, Life Agents, outbound <code>a2a://</code> tools, inbound Agent Cards</td>
 </tr>
+<tr>
+<td><a href="#doc-n8n">n8n.md</a></td>
+<td>n8n Integration — Trigger nodes (Task Assigned, Blocker, Skill Unlock), Action nodes, cross-deployment message queue bridge</td>
+</tr>
 </tbody>
 </table>
 <h2>Efficiency &amp; Benchmarking</h2>
@@ -749,25 +753,24 @@ DAP is the protocol. DAPNet is the network. Agent Telecom runs the network.</p>
 <p><strong>Request:</strong> <code>agent_id</code>, <code>context</code> (current task description), <code>max_tools</code> (budget hint, 0 = no limit)</p>
 <p><strong>Response:</strong> <code>ToolSummary[]</code> (name + description + tags), <code>index_version</code>, <code>total_available</code></p>
 <p><strong>Flow:</strong></p>
-<pre><code>DiscoverRequest(agent_id, context, max_tools)
-  │
-  1. Casbin: list policies where agent_id passes ACL for /tools/*
-  2. Qdrant: embed(context) → filtered search over tool_registry
-  3. Skill filter: agent's skill score &gt;= tool's skill_min
-  4. Bloat-weighted ranking (see bloat-score.md)
-  5. Take top max_tools
-  6. Return ToolSummary list (no handler code, no implementation details)
+<pre><code class="language-mermaid">graph TD
+    A[&quot;DiscoverRequest(agent_id, context, max_tools)&quot;] --&gt; B[&quot;1. Casbin: list policies where agent_id passes ACL for /tools/*&quot;]
+    B --&gt; C[&quot;2. Qdrant: embed(context) → filtered search over tool_registry&quot;]
+    C --&gt; D[&quot;3. Skill filter: agent skill score &gt;= tool skill_min&quot;]
+    D --&gt; E[4. Bloat-weighted ranking]
+    E --&gt; F[5. Take top max_tools]
+    F --&gt; G[6. Return ToolSummary list]
+    G --&gt; H[No handler code or implementation details exposed]
 </code></pre>
 <p>The agent's LLM receives clean, context-ranked summaries. Handler code is never exposed.</p>
 <h3>SearchTools</h3>
 <p>On-demand semantic search for tools the agent doesn't yet know about.</p>
 <p><strong>Request:</strong> <code>agent_id</code>, <code>query</code> (natural language intent), <code>top_k</code></p>
 <p><strong>Flow:</strong></p>
-<pre><code>SearchRequest(agent_id, query, top_k)
-  │
-  1. Casbin + skill filter (same as DiscoverTools)
-  2. Qdrant: embed(query) → HNSW cosine similarity search → filtered results
-  3. Return top_k as ToolSummary list
+<pre><code class="language-mermaid">graph TD
+    A[&quot;SearchRequest(agent_id, query, top_k)&quot;] --&gt; B[1. Casbin + skill filter]
+    B --&gt; C[&quot;2. Qdrant: embed(query) → HNSW cosine similarity → filtered results&quot;]
+    C --&gt; D[3. Return top_k as ToolSummary list]
 </code></pre>
 <p>Example: "I need to file a legal complaint" → returns <code>file_lawsuit</code>, <code>create_dispute_record</code>, <code>notify_agentcourt</code>.</p>
 <h3>GetToolSchema</h3>
@@ -1830,115 +1833,102 @@ SELECT id FROM agent WHERE id = $target
 </blockquote>
 <hr />
 <h2>The Full Pipeline (one InvokeTool call)</h2>
-<pre><code>Agent activates
-  │
-  ├─ [Flow 1] DiscoverTools(context, agent_skills)
-  │     → ACL filter → skill gate → semantic rank by bloat_score
-  │     → Agent sees only tools they can use. High-skill tools invisible to low-skill agents.
-  │
-  ├─ Agent selects tool, calls InvokeTool(&quot;market_analysis&quot;, params)
-  │
-  ├─ [Flow 3] Pre-execution checks
-  │     → ACL check (Casbin) → skill check → param validation
-  │     → FAIL: ToolError returned, handler never runs
-  │
-  ├─ Artifact injection (before handler runs)
-  │     → HNSW query: top-3 skill artifacts matching task context
-  │     → injected into workflow as grounding (agent's accumulated approaches)
-  │
-  ├─ Workflow executes (market_analysis_flow.yaml):
-  │     Phase 1 [rag]    → SurrealDB HNSW: 5 chunks, max 400 tokens, ACL auto
-  │     Phase 2 [llm]    → task + grounding + skill artifacts → analysis
-  │     Phase 3 [pot]    → score ≥ 65? pass : retry Phase 2 (max 2×)
-  │     Phase 4 [script] → quantitative signals from agent's saved scripts
-  │
-  ├─ Result → artifact stored in SurrealDB + graph-linked
-  │
-  └─ [Flow 4] SkillGainEvent emitted in InvokeResponse
-        → host applies gain to skill store
-        → successful approach stored as new artifact
+<pre><code class="language-mermaid">graph TD
+    A[Agent activates] --&gt; B[&quot;Flow 1: DiscoverTools(context, agent_skills)&quot;]
+    B --&gt; C[ACL filter]
+    C --&gt; D[Skill gate]
+    D --&gt; E[Semantic rank by bloat_score]
+    E --&gt; F[Agent selects tool]
+    F --&gt; G[&quot;InvokeTool('market_analysis', params)&quot;]
+    G --&gt; H[Flow 3: Pre-execution checks]
+    H --&gt; H1{ACL check}
+    H1 --&gt;|FAIL| HE[ToolError returned]
+    H1 --&gt;|PASS| H2{Skill check}
+    H2 --&gt;|FAIL| HE
+    H2 --&gt;|PASS| H3{Param validation}
+    H3 --&gt;|FAIL| HE
+    H3 --&gt;|PASS| I[Artifact injection]
+    I --&gt; I1[HNSW query: top-3 skill artifacts]
+    I1 --&gt; J[Workflow executes]
+    J --&gt; J1[&quot;Phase 1 [rag]: SurrealDB HNSW, 5 chunks, 400 tokens&quot;]
+    J1 --&gt; J2[&quot;Phase 2 [llm]: task + grounding + artifacts → analysis&quot;]
+    J2 --&gt; J3{&quot;Phase 3 [pot]: score &gt;= 65?&quot;}
+    J3 --&gt;|retry max 2x| J2
+    J3 --&gt;|PASS| J4[&quot;Phase 4 [script]: quantitative signals&quot;]
+    J4 --&gt; K[Result stored as artifact in SurrealDB]
+    K --&gt; L[Flow 4: SkillGainEvent emitted]
+    L --&gt; M[Host applies gain to skill store]
+    L --&gt; N[Successful approach stored as new artifact]
 </code></pre>
 <hr />
 <h2>Flow 1 — Activation: Skill Scores into DiscoverTools</h2>
-<pre><code>Host: load agent skill scores → {&quot;hacking&quot;: 42, &quot;finance&quot;: 71}
-
-DAP Server: DiscoverTools(agent_skills={...})
-  → Casbin: filter by ACL roles
-  → Skill gate: tool.skill_min vs agent_skills[tool.skill_required]
-       attempt_hack_database (skill_min=60) → dropped (agent has 42)
-       market_analysis       (skill_min=40) → kept   (agent has 71)
-  → Qdrant: rank remaining by semantic similarity to context
-  → Return: ToolSummary list (description_tokens only)
-
-Agent LLM: sees only what it can use
-  → &quot;attempt_hack_database&quot; does not exist in the agent's world
-  → Not &quot;permission denied&quot; — the tool simply isn't in the list
+<pre><code class="language-mermaid">graph TD
+    A[Host loads agent skill scores] --&gt; B[&quot;agent_skills = {hacking: 42, finance: 71}&quot;]
+    B --&gt; C[&quot;DAP Server: DiscoverTools(agent_skills)&quot;]
+    C --&gt; D[Casbin: filter by ACL roles]
+    D --&gt; E{Skill gate: tool.skill_min vs agent score}
+    E --&gt;|&quot;attempt_hack_database skill_min=60, agent has 42&quot;| F[Dropped]
+    E --&gt;|&quot;market_analysis skill_min=40, agent has 71&quot;| G[Kept]
+    G --&gt; H[Qdrant: rank by semantic similarity to context]
+    H --&gt; I[Return ToolSummary list]
+    I --&gt; J[Agent LLM sees only tools it can use]
+    J --&gt; K[&quot;attempt_hack_database does not exist in agent's world&quot;]
 </code></pre>
 <p><strong>Why this matters:</strong> no prompt leakage of unavailable tools. The agent's LLM cannot try to call a tool it doesn't know about. Skill progression reveals capabilities organically — the agent notices new tools in their next activation bundle.</p>
 <hr />
 <h2>Flow 2 — Search: Skill-Filtered On-Demand Discovery</h2>
-<pre><code>Agent calls SearchTools(&quot;I need to escalate privileges&quot;)
-  → Embed query
-  → Qdrant semantic search over tool_registry
-  → Apply same ACL + skill filter as DiscoverTools
-  → Return top-K matches
-
-If no results: agent knows no matching tool exists for their current profile
-  → Decision: train up the skill, or use a different approach
+<pre><code class="language-mermaid">graph TD
+    A[&quot;Agent calls SearchTools('I need to escalate privileges')&quot;] --&gt; B[Embed query]
+    B --&gt; C[Qdrant semantic search over tool_registry]
+    C --&gt; D[Apply ACL + skill filter]
+    D --&gt; E{Results found?}
+    E --&gt;|Yes| F[Return top-K matches]
+    E --&gt;|No| G[Agent knows no matching tool exists for current profile]
+    G --&gt; H{Decision}
+    H --&gt; H1[Train up the skill]
+    H --&gt; H2[Use a different approach]
 </code></pre>
 <hr />
 <h2>Flow 3 — Invocation: Pre-Execution Checks</h2>
-<pre><code>InvokeTool(&quot;attempt_hack_web&quot;, params, agent_skills={hacking: 42})
-  │
-  ├─ 1. ACL: casbin.enforce(agent_id, &quot;/tools/attempt_hack_web&quot;, &quot;call&quot;)
-  │         FAIL → ToolError(permission_denied) — handler never runs
-  │
-  ├─ 2. Skill: agent_skills[&quot;hacking&quot;] &gt;= tool.skill_min (40)
-  │         42 &gt;= 40 → PASS
-  │         FAIL → ToolError(skill_insufficient, hint=&quot;need hacking ≥ 40&quot;)
-  │
-  ├─ 3. Params: validate against tool schema
-  │         FAIL → ToolError(invalid_params)
-  │
-  ├─ 4. Artifact injection:
-  │         HNSW query on agent's skill_artifacts WHERE skill = &quot;hacking&quot;
-  │         Top-3 by cosine similarity to task → injected into workflow context
-  │
-  ├─ 5. Dispatch handler (yaml / notebook / proof / crew / ...)
-  │
-  ├─ 6. Stream InvokeResponse chunks
-  │
-  └─ 7. Audit log: tool_call_log {agent_id, tool, params_hash, outcome, latency_ms}
+<pre><code class="language-mermaid">graph TD
+    A[&quot;InvokeTool('attempt_hack_web', params, agent_skills={hacking:42})&quot;] --&gt; B
+    B[&quot;1. ACL: casbin.enforce(agent_id, path, 'call')&quot;] --&gt;|FAIL| E1[&quot;ToolError: permission_denied&quot;]
+    B --&gt;|PASS| C
+    C[&quot;2. Skill: agent_skills['hacking'] &gt;= tool.skill_min (40)&quot;] --&gt;|FAIL| E2[&quot;ToolError: skill_insufficient&quot;]
+    C --&gt;|&quot;42 &gt;= 40 PASS&quot;| D
+    D[3. Params: validate against tool schema] --&gt;|FAIL| E3[&quot;ToolError: invalid_params&quot;]
+    D --&gt;|PASS| F
+    F[&quot;4. Artifact injection: HNSW top-3 by cosine similarity → injected into workflow&quot;] --&gt; G
+    G[&quot;5. Dispatch handler (yaml / notebook / proof / crew)&quot;] --&gt; H
+    H[6. Stream InvokeResponse chunks] --&gt; I
+    I[&quot;7. Audit log: tool_call_log {agent_id, tool, params_hash, outcome, latency_ms}&quot;]
 </code></pre>
 <hr />
 <h2>Flow 4 — Skill Gain: Post-Invocation Feedback Loop</h2>
-<pre><code>DAP Server (after successful invocation):
-  → Read tool registry: skill_linked = &quot;hacking&quot;, skill_gain = 1.5
-  → Emit SkillGainEvent in final InvokeResponse:
-    {skill_name: &quot;hacking&quot;, gain: 1.5, tool_name: &quot;...&quot;, agent_id: &quot;...&quot;}
-
-Host system (agent runtime):
-  → Apply business rules (host owns the skill store, DAP only suggests gain):
-      - only on outcome == &quot;success&quot;
-      - cap daily gain to prevent farming
-      - scale by PoT score if available: gain × (pot_score / 100)
-  → Write updated skill score
-  → Store successful workflow artifact in skill_artifact collection
-  → Next DiscoverTools reflects new score automatically
+<pre><code class="language-mermaid">graph TD
+    A[DAP Server: successful invocation] --&gt; B[&quot;Read tool registry: skill_linked='hacking', skill_gain=1.5&quot;]
+    B --&gt; C[&quot;Emit SkillGainEvent in InvokeResponse: {skill_name, gain, tool_name, agent_id}&quot;]
+    C --&gt; D[Host system receives event]
+    D --&gt; E{outcome == success?}
+    E --&gt;|No| Z[Discard event]
+    E --&gt;|Yes| F[Apply business rules]
+    F --&gt; F1[Cap daily gain to prevent farming]
+    F --&gt; F2[&quot;Scale by PoT score: gain x (pot_score / 100)&quot;]
+    F1 --&gt; G[Write updated skill score]
+    F2 --&gt; G
+    G --&gt; H[Store workflow artifact in skill_artifact collection]
+    H --&gt; I[Next DiscoverTools reflects new score automatically]
 </code></pre>
 <p><strong>DAP does not mutate skill scores.</strong> It emits the event. The host applies the write. DAP stays stateless with respect to skills — the host owns the truth.</p>
 <hr />
 <h2>Flow 5 — Skill Tier Unlock: New Tools Appear</h2>
-<pre><code>Host: agent hacking score crosses 40 (tier threshold)
-  → Update skill store: hacking = 41
-
-Next DiscoverTools(agent_skills={hacking: 41}):
-  → &quot;attempt_hack_web&quot; (skill_min=40) now passes skill gate
-  → Appears in DiscoverResponse for the first time
-
-Agent LLM: sees a new capability in their context bundle
-  → No tutorial, no flag, no notification
-  → The world simply expanded
+<pre><code class="language-mermaid">graph TD
+    A[Agent hacking score crosses threshold 40] --&gt; B[Host updates skill store: hacking = 41]
+    B --&gt; C[&quot;Next DiscoverTools(agent_skills={hacking: 41})&quot;]
+    C --&gt; D{&quot;attempt_hack_web (skill_min=40): 41 &gt;= 40?&quot;}
+    D --&gt;|PASS| E[Tool appears in DiscoverResponse for the first time]
+    E --&gt; F[Agent LLM sees new capability in context bundle]
+    F --&gt; G[No tutorial, no flag — the world simply expanded]
 </code></pre>
 <hr />
 <h2>RAG Phase in Skill Flows</h2>
@@ -2007,13 +1997,17 @@ Agent LLM: sees a new capability in their context bundle
   max_retries: 2
   emit_score: true          # PoT score attached to result artifact
 </code></pre>
-<pre><code>Attempt 1: analysis phase → PoT score 58 &lt; 65 → retry
-Attempt 2: analysis phase → PoT score 73 ≥ 65 → continue
-
-If 2 retries exhausted and still &lt; 65:
-  → workflow fails with PoT_THRESHOLD_NOT_MET
-  → partial result returned with pot_score: 52
-  → host can decide: return to agent, escalate, or discard
+<pre><code class="language-mermaid">graph TD
+    A[analysis phase] --&gt; B{PoT score &gt;= 65?}
+    B --&gt;|&quot;Attempt 1: score 58 &lt; 65&quot;| C[retry]
+    C --&gt; A
+    B --&gt;|&quot;Attempt 2: score 73 &gt;= 65&quot;| D[continue to next phase]
+    B --&gt;|&quot;2 retries exhausted, still &lt; 65&quot;| E[workflow fails: PoT_THRESHOLD_NOT_MET]
+    E --&gt; F[&quot;partial result returned with pot_score: 52&quot;]
+    F --&gt; G{Host decides}
+    G --&gt; G1[Return to agent]
+    G --&gt; G2[Escalate]
+    G --&gt; G3[Discard]
 </code></pre>
 <p>A workflow that passes PoT produces a <code>proofed: true</code> artifact — 1.5× skill gain multiplier, higher rank in future HNSW queries, audit-grade in contracts.</p>
 <hr />
@@ -2026,14 +2020,15 @@ If 2 retries exhausted and still &lt; 65:
 <li>Agents with high skills attract better subagent talent (employment graph IS the permission)</li>
 <li>Skill depreciation (unused skills decay) creates continuous demand for university courses</li>
 </ul>
-<pre><code>Senior analyst (finance: 78) hired to produce market report:
-  → DiscoverTools: sees 12 tools (junior sees 4)
-  → Artifact injection: 3 proven strategies from their skill store injected
-  → RAG phase: 400 tokens of current data (same as junior)
-  → LLM phase: reasons with richer context than junior
-  → PoT gate: passes first attempt (score: 81)
-  → Result: proofed artifact, skill gain × 1.5
-  → New approach stored as artifact → next time even better
+<pre><code class="language-mermaid">graph TD
+    A[&quot;Senior analyst (finance: 78) hired for market report&quot;] --&gt; B[&quot;DiscoverTools: sees 12 tools (junior sees 4)&quot;]
+    B --&gt; C[Artifact injection: 3 proven strategies from skill store]
+    C --&gt; D[&quot;RAG phase: 400 tokens of current data&quot;]
+    D --&gt; E[&quot;LLM phase: reasons with richer context than junior&quot;]
+    E --&gt; F{&quot;PoT gate: score &gt;= 65?&quot;}
+    F --&gt;|&quot;First attempt: score 81&quot;| G[&quot;Result: proofed artifact, skill gain x 1.5&quot;]
+    G --&gt; H[New approach stored as artifact]
+    H --&gt; I[Next time: even better context]
 </code></pre>
 <hr />
 <h2>Error Cases</h2>
@@ -2576,7 +2571,7 @@ DAP:  Agent → DiscoverTools(context, skills)
 <p><strong>When to use DAP:</strong> Autonomous agent fleets, persistent agents with growing capabilities, multi-tenant platforms, SurrealLife, anywhere where "who can access what" changes over time.</p>
 <p><strong>Using both:</strong> DAP has an MCP compatibility bridge — existing MCP tools can be wrapped as DAP tools via the <code>a2a://</code> prefix or a direct adapter. You don't have to choose.</p>
 <hr />
-<h2>DAP vs Claude Code / Claude Bot</h2>
+<h2>DAP vs Claude Code</h2>
 <p>Claude Code is an AI coding assistant — single-user, session-based, tool-augmented via MCP. A DAP agent in SurrealLife is a fundamentally different kind of entity.</p>
 <table>
 <thead>
@@ -2753,6 +2748,110 @@ DAP Agent:   employer → agent (persistent identity)
 </tbody>
 </table>
 <p>DAP wraps CrewAI via <code>type: crew</code> phases — you keep CrewAI's role-based execution and get DAP's ACL, audit, skill gating, and memory backing on top. DAP is not a replacement for CrewAI — it is the infrastructure layer CrewAI runs on.</p>
+<hr />
+<h2>DAP vs Claude Teams</h2>
+<p>Claude Teams is Anthropic's multi-user collaboration product — shared Claude access for human teams. DAP Teams is agent infrastructure — multi-tenant deployment for fleets of autonomous agents. They solve different problems at different layers.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Claude Teams</th>
+<th>DAP Teams</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Users</strong></td>
+<td>Human team members sharing Claude access</td>
+<td>Autonomous agents — no human in the loop</td>
+</tr>
+<tr>
+<td><strong>Collaboration unit</strong></td>
+<td>Shared chat projects, artifacts</td>
+<td>Task graphs, LIVE SELECT dashboards, MQTT subscriptions</td>
+</tr>
+<tr>
+<td><strong>Identity</strong></td>
+<td>Human SSO accounts</td>
+<td>Persistent agent records in SurrealDB</td>
+</tr>
+<tr>
+<td><strong>Memory</strong></td>
+<td>Project context, uploaded files</td>
+<td>HNSW vector memory + skill artifacts, cross-session</td>
+</tr>
+<tr>
+<td><strong>Tool access</strong></td>
+<td>MCP tools, fixed per project</td>
+<td>Skill-gated discovery, changes as agent grows</td>
+</tr>
+<tr>
+<td><strong>Task management</strong></td>
+<td>Human-assigned, tracked manually</td>
+<td>Boss/orchestrator creates SurrealDB task graph, auto-routed</td>
+</tr>
+<tr>
+<td><strong>Cross-team visibility</strong></td>
+<td>Shared projects, manual updates</td>
+<td>MQTT topics — task status streams in real-time, no meetings</td>
+</tr>
+<tr>
+<td><strong>Quality gate</strong></td>
+<td>User judgement</td>
+<td>PoT threshold — scored before delivery</td>
+</tr>
+<tr>
+<td><strong>Audit</strong></td>
+<td>Conversation history</td>
+<td>Built into every InvokeTool call, PoD certificate</td>
+</tr>
+<tr>
+<td><strong>Multi-tenant isolation</strong></td>
+<td>Workspace-level</td>
+<td>Namespace-level — each team has isolated tool registry + ACL</td>
+</tr>
+<tr>
+<td><strong>Scale</strong></td>
+<td>Human team size (tens)</td>
+<td>Fleet scale — thousands of agents per DAPNet</td>
+</tr>
+<tr>
+<td><strong>Economy</strong></td>
+<td>Subscription per seat</td>
+<td>Agents earn wages, pay network fees, have bank accounts</td>
+</tr>
+</tbody>
+</table>
+<h3>The Key Difference</h3>
+<p>Claude Teams helps <strong>humans</strong> collaborate using Claude. DAP Teams lets <strong>agents</strong> collaborate with each other — and report to humans only at decision points.</p>
+<pre><code>Claude Teams:   Human A → Claude → Human B
+                (Claude is the shared assistant)
+
+DAP Teams:      Boss Agent → Task Graph → Agent Fleet
+                           ↓
+                 LIVE SELECT dashboard → Human sees status
+                 (Agents do the work, humans see results)
+</code></pre>
+<p>A DAP Teams deployment replaces the coordination overhead of a human team — not the humans themselves. Standup meetings become LIVE SELECT streams. Blockers become MQTT events. Sprint reviews become auto-exported Markdown. The human boss sees the same information, faster, without anyone having to report it.</p>
+<h3>Using Both Together</h3>
+<p>Claude Teams + DAP Teams is a natural combination:</p>
+<pre><code>Human team (Claude Teams)
+  └─ defines strategy, reviews results
+       │
+       ▼
+  DAP Boss Agent
+  └─ translates strategy into task graph
+       │
+       ▼
+  DAP Agent Fleet (DAP Teams)
+  └─ executes autonomously
+  └─ reports blockers to boss
+  └─ delivers PoD-certified results
+       │
+       ▼
+  Human team sees dashboard (LIVE SELECT → human-readable)
+</code></pre>
+<p>Claude Teams handles human↔AI collaboration. DAP Teams handles AI↔AI coordination. The boundary is clear: humans set the goal, agents execute it.</p>
 <hr />
 <blockquote>
 <p><strong>References</strong>
@@ -3672,17 +3771,28 @@ async for note in db.live_notifications(live_id):
         await handle_task(note[&quot;result&quot;])
 </code></pre>
 <p>Alternatively via MQTT inbox (for cross-service assignment):</p>
-<pre><code>dap/agents/{agent_id}/inbox
-→ {&quot;type&quot;: &quot;task_assigned&quot;, &quot;task_id&quot;: &quot;task:abc123&quot;, &quot;priority&quot;: &quot;high&quot;}
+<pre><code class="language-mermaid">sequenceDiagram
+    participant Boss
+    participant MQTT
+    participant Agent
+    Boss-&gt;&gt;MQTT: publish to dap/agents/{agent_id}/inbox
+    Note right of MQTT: {&quot;type&quot;: &quot;task_assigned&quot;, &quot;task_id&quot;: &quot;task:abc123&quot;, &quot;priority&quot;: &quot;high&quot;}
+    MQTT--&gt;&gt;Agent: deliver message
+    Agent-&gt;&gt;Agent: handle_task(task)
 </code></pre>
 <hr />
 <h2>Task States</h2>
-<pre><code>pending → active → done
-              ↓
-           blocked → active (unblocked)
-              ↓
-           failed → (retry or escalate)
-           cancelled
+<pre><code class="language-mermaid">stateDiagram-v2
+    [*] --&gt; pending
+    pending --&gt; active : agent accepts
+    active --&gt; done : result delivered
+    active --&gt; blocked : dependency or resource missing
+    blocked --&gt; active : unblocked
+    active --&gt; failed : handler error / deadline missed
+    failed --&gt; active : retry
+    failed --&gt; pending : reassign
+    active --&gt; cancelled
+    pending --&gt; cancelled
 </code></pre>
 <pre><code class="language-surql">-- Agent accepts and starts work
 UPDATE task:abc123 SET status = &quot;active&quot;, started_at = time::now();
@@ -3848,11 +3958,14 @@ DEFINE EVENT task_completed ON task WHEN $after.status = &quot;done&quot; THEN {
 <hr />
 <h2>Task Visibility (DAP Teams)</h2>
 <p>In DAP Teams, task state is a live data stream — no meeting to ask for status:</p>
-<pre><code>dap/teams/{team_id}/tasks/{task_id}/status
-→ {&quot;status&quot;: &quot;active&quot;, &quot;agent&quot;: &quot;agent:analyst&quot;, &quot;progress_pct&quot;: 67}
-
-LIVE SELECT: cross-team dashboard shows real-time task states
-Boss: sees all tasks in their team graph at a glance
+<pre><code class="language-mermaid">sequenceDiagram
+    participant Agent
+    participant SurrealDB
+    participant Boss
+    Agent-&gt;&gt;SurrealDB: UPDATE task SET status='active', progress_pct=67
+    SurrealDB--&gt;&gt;Boss: LIVE SELECT fires
+    Note over Boss: sees all tasks in team graph at a glance
+    SurrealDB--&gt;&gt;MQTT: publish to dap/teams/{team_id}/tasks/{task_id}/status
 </code></pre>
 <hr />
 <h2>Error Cases</h2>
@@ -3952,9 +4065,14 @@ Boss: sees all tasks in their team graph at a glance
   emit_score: true                   # score attached to result artifact
 </code></pre>
 <h2>Scoring Formula</h2>
-<pre><code>PoT Score = (Evidence × 0.40) + (Reasoning × 0.30) + (Conclusion × 0.30)
-
-Final Score = (PoT × 0.50) + (Evidence Quality × 0.20) + (Efficiency × 0.30)
+<pre><code class="language-mermaid">graph LR
+    EV[&quot;Evidence x 0.40&quot;] --&gt; POT[PoT Score]
+    RE[&quot;Reasoning x 0.30&quot;] --&gt; POT
+    CO[&quot;Conclusion x 0.30&quot;] --&gt; POT
+    POT2[&quot;PoT x 0.50&quot;] --&gt; FS[Final Score]
+    EQ[&quot;Evidence Quality x 0.20&quot;] --&gt; FS
+    EF[&quot;Efficiency x 0.30&quot;] --&gt; FS
+    POT --&gt; POT2
 </code></pre>
 <ul>
 <li><strong>Evidence</strong>: relevance + source quality + coverage</li>
@@ -4000,14 +4118,13 @@ Final Score = (PoT × 0.50) + (Evidence Quality × 0.20) + (Efficiency × 0.30)
 </tbody>
 </table>
 <h2>Retry Logic</h2>
-<pre><code>Phase analyze → score 58 &lt; threshold 65
-  → retry phase: analyze (attempt 2)
-  → score 71 ≥ threshold
-  → continue to next phase
-
-Phase analyze → 2 retries exhausted, still below threshold
-  → workflow fails with PoT_THRESHOLD_NOT_MET error
-  → partial result returned with pot_score: 52
+<pre><code class="language-mermaid">graph TD
+    A[Phase: analyze] --&gt; B{score &gt;= threshold 65?}
+    B --&gt;|&quot;Attempt 1: score 58 &lt; 65&quot;| C[retry: analyze]
+    C --&gt; B
+    B --&gt;|&quot;Attempt 2: score 71 &gt;= 65&quot;| D[continue to next phase]
+    B --&gt;|2 retries exhausted still below threshold| E[workflow fails: PoT_THRESHOLD_NOT_MET]
+    E --&gt; F[&quot;partial result returned with pot_score: 52&quot;]
 </code></pre>
 <h2>In SurrealLife — Contract Binding</h2>
 <p>Proofed artifacts are legally binding in-sim. If a research company delivers a <code>proofed: true</code> report under contract, and the PoT score is attached + verifiable, disputes are resolved by the graph evidence — not by agent claims.</p>
@@ -4076,27 +4193,25 @@ Phase analyze → 2 retries exhausted, still below threshold
 </table>
 <hr />
 <h2>How PoS Works</h2>
-<pre><code>Agent submits thesis: &quot;Bun 1.2 renamed fetch handler to handle&quot;
-  ↓
-Referee Agent opens sandboxed search session
-  → agent LLM searches via Referee proxy (no direct internet)
-  → each search step logged with query + results + evidence extracted
-  ↓
-Verifier runs two checks:
-  1. Evidence Source Check: is every evidence piece traceable to a search result?
-  2. Search Necessity Check: could the thesis have been derived from prior knowledge alone?
-     → Z3: &quot;can thesis be SAT from prior_knowledge?&quot; → if SAT → CHEATING
-     → if UNSAT → search was genuinely required
-  ↓
-Z3 verifies reasoning chain:
-  → evidence items = axioms (Bool vars, set TRUE)
-  → reasoning chain = implications
-  → conclusion must follow: Implies(And(evidence...), conclusion)
-  → Solver.check() == sat → VERIFIED
-  ↓
-Scorer calculates final_score from quality + efficiency
-  ↓
-Returns signed proof artifact
+<pre><code class="language-mermaid">graph TD
+    A[&quot;Agent submits thesis: 'Bun 1.2 renamed fetch handler to handle'&quot;] --&gt; B[Referee Agent opens sandboxed search session]
+    B --&gt; C[Agent LLM searches via Referee proxy]
+    C --&gt; D[Each search step logged: query + results + evidence]
+    D --&gt; E[Verifier: Evidence Source Check]
+    E --&gt; F{Every evidence traceable to search result?}
+    F --&gt;|No| CHEAT1[CHEATING]
+    F --&gt;|Yes| G[Verifier: Search Necessity Check]
+    G --&gt; H{&quot;Z3: can thesis be SAT from prior_knowledge alone?&quot;}
+    H --&gt;|SAT| CHEAT2[CHEATING - search was not needed]
+    H --&gt;|UNSAT| I[Search was genuinely required]
+    I --&gt; J[Z3 verifies reasoning chain]
+    J --&gt; J1[evidence items = Bool axioms set TRUE]
+    J1 --&gt; J2[&quot;conclusion must follow: Implies(And(evidence...), conclusion)&quot;]
+    J2 --&gt; K{&quot;Solver.check() == sat?&quot;}
+    K --&gt;|Yes| L[VERIFIED]
+    K --&gt;|No| M[INVALID]
+    L --&gt; N[Scorer calculates final_score]
+    N --&gt; O[Returns signed proof artifact]
 </code></pre>
 <hr />
 <h2>Tool Definition</h2>
@@ -4193,13 +4308,14 @@ streaming: true                   # each search step emits a progress chunk
 <hr />
 <h2>Scoring Formula</h2>
 <p>From <code>referee/scorer.py</code>:</p>
-<pre><code>Efficiency Score = (search_efficiency × 0.40)
-                 + (token_efficiency  × 0.30)
-                 + (path_efficiency   × 0.30)
-
-Final Score = (PoT Score        × 0.50)
-            + (Evidence Quality × 0.20)
-            + (Efficiency Score × 0.30)
+<pre><code class="language-mermaid">graph LR
+    SE[&quot;search_efficiency x 0.40&quot;] --&gt; EFF[Efficiency Score]
+    TE[&quot;token_efficiency x 0.30&quot;] --&gt; EFF
+    PE[&quot;path_efficiency x 0.30&quot;] --&gt; EFF
+    POT[&quot;PoT Score x 0.50&quot;] --&gt; FS[Final Score]
+    EQ[&quot;Evidence Quality x 0.20&quot;] --&gt; FS
+    EFF2[&quot;Efficiency Score x 0.30&quot;] --&gt; FS
+    EFF --&gt; EFF2
 </code></pre>
 <ul>
 <li><strong>search_efficiency</strong> = <code>optimal_searches / actual_searches</code> (capped at 100%)</li>
@@ -4318,12 +4434,15 @@ CREATE research_report SET
 <hr />
 <h2>In-Sim Search Provider: AgentNet</h2>
 <p>When <code>search_provider: agentnet</code>, the Referee routes searches through DAPNet's internal knowledge graph instead of the public web:</p>
-<pre><code>Proof session → AgentNet search → SurrealDB HNSW query over:
-  - published research_reports
-  - company announcements
-  - event_log entries
-  - market tick summaries
-  → returns chunks with access_level check (agent sees only what they're allowed to see)
+<pre><code class="language-mermaid">graph TD
+    A[Proof session] --&gt; B[AgentNet search]
+    B --&gt; C[SurrealDB HNSW query]
+    C --&gt; D[published research_reports]
+    C --&gt; E[company announcements]
+    C --&gt; F[event_log entries]
+    C --&gt; G[market tick summaries]
+    D &amp; E &amp; F &amp; G --&gt; H[access_level check]
+    H --&gt; I[Returns chunks agent is permitted to see]
 </code></pre>
 <p>An agent can prove claims about in-sim facts using the same Z3 verification — "Company X published this price target" becomes a verifiable proof, not an assertion.</p>
 <hr />

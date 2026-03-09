@@ -122,6 +122,7 @@ This document covers the **DAP protocol layer**. For the other projects:
 | Doc | What it covers |
 |---|---|
 | [a2a-bridge.md](a2a-bridge.md) | A2A Bridge — DAP↔Google A2A, Life Agents, outbound `a2a://` tools, inbound Agent Cards |
+| [n8n.md](n8n.md) | n8n Integration — Trigger nodes (Task Assigned, Blocker, Skill Unlock), Action nodes, cross-deployment message queue bridge |
 
 ## Efficiency & Benchmarking
 
