@@ -81,6 +81,7 @@ This document covers the **DAP protocol layer**. For the other projects:
 | [protocol.md](protocol.md) | gRPC service definition, DiscoverTools, SearchTools, GetToolSchema, InvokeTool |
 | [acl.md](acl.md) | Casbin + SurrealDB RBAC + Capabilities — three-layer ACL stack |
 | [tool-registration.md](tool-registration.md) | YAML tool definitions, handler types, bloat score |
+| [tool-skill-binding.md](tool-skill-binding.md) | Tool–Skill Binding — skill gates, gain loop, artifact memory, tiers, public vs private |
 | [bloat-score.md](bloat-score.md) | Token efficiency metric — discovery ranking formula |
 
 ## Skills & Workflows
@@ -143,6 +144,7 @@ This document covers the **DAP protocol layer**. For the other projects:
 |---|---|
 | [apps.md](apps.md) | DAP Apps — async message queue, @job decorator, DAPQueue, Worker Pool |
 | [bench.md](bench.md) | DAP Bench — 3 benchmark families, server DAP score, ACL accuracy |
+| [logs.md](logs.md) | DAP Logs — structured audit on every op, SurrealDB + MQTT stream, LIVE SELECT, DEFINE EVENT alerts |
 | [migrate.md](migrate.md) | Migration from MCP / LangChain / OpenAI Functions / Python |
 | [teams.md](teams.md) | DAP Teams — multi-tenant deployment |
 
