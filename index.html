@@ -401,7 +401,7 @@ SurrealLife and DAP IDE are applications built on top.</p>
 </blockquote>
 <hr />
 <h2>Overview</h2>
-<p>DAP has four distinct layers. Mixing them up is the single biggest source of confusion in the docs.</p>
+<p>DAP has three distinct layers. Mixing them up is the single biggest source of confusion in the docs.</p>
 <table>
 <thead>
 <tr>
@@ -430,14 +430,9 @@ SurrealLife and DAP IDE are applications built on top.</p>
 <td>ISP — runs DAPNet backbone, charges per-message fees</td>
 <td><a href="#doc-state-contracts">state-contracts.md</a></td>
 </tr>
-<tr>
-<td><strong>Applications</strong></td>
-<td>SurrealLife · DAP IDE</td>
-<td>Online worlds and tools built on DAP</td>
-<td><a href="#doc-surreal-life">surreal-life.md</a> · <a href="#doc-dap-ide">dap-ide.md</a></td>
-</tr>
 </tbody>
 </table>
+<p><strong>SurrealLife</strong> and <strong>DAP IDE</strong> are applications built on these three layers — not layers themselves. See <a href="#integrations">Integrations</a> below.</p>
 <pre><code class="language-mermaid">graph TB
     subgraph Protocol[&quot;DAP Protocol (Open Standard)&quot;]
         GRPC[&quot;gRPC RPCs&lt;br/&gt;DiscoverTools · InvokeTool · SearchTools&quot;]
