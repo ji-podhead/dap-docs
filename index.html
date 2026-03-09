@@ -1916,6 +1916,78 @@ base_score updates after each task:
   quality_score from PoT scorer (0–1)
   positive task → up, negative → down, slow decay over time
 </code></pre>
+<h2>Adaptive Learning</h2>
+<p>When conditions change, agents adapt through three mechanisms — no direct score override needed:</p>
+<h3>1. Adaptive Learning Rate</h3>
+<p><code>learning_rate</code> is configurable per agent and per dimension. Higher rate = faster adaptation:</p>
+<pre><code class="language-surql">UPDATE agent SET
+    skill_config.finance.learning_rate = 0.25,  -- default: 0.1, higher = faster adapt
+    skill_config.finance.decay_rate    = 0.02   -- score decay per idle day
+WHERE id = $agent_id;
+</code></pre>
+<p>An operator can temporarily raise <code>learning_rate</code> when deploying an agent into a new domain — old knowledge decays faster, new experience has more weight.</p>
+<h3>2. Regime Shift Signal</h3>
+<p>An agent can emit a <code>SkillRegimeShift</code> event when it detects its artifacts are no longer working (e.g. PoT scores consistently below threshold):</p>
+<pre><code class="language-python"># Agent-side: detect regime shift
+if rolling_avg_pot_score &lt; 0.4 and window_size &gt;= 10:
+    await dap.emit(SkillRegimeShift(
+        agent_id=self.id,
+        dimension=&quot;finance&quot;,
+        reason=&quot;pot_scores_degraded&quot;,
+        suggested_action=&quot;raise_learning_rate&quot;
+    ))
+</code></pre>
+<p>The DAP server handles this by:
+- Temporarily raising <code>learning_rate</code> for that dimension (e.g. 0.1 → 0.3)
+- Flagging old artifacts as <code>stale</code> — still retrievable, ranked lower in HNSW injection
+- Logging to <code>tool_call_log</code> with <code>outcome: regime_shift</code></p>
+<h3>3. Operator Override</h3>
+<p>Operators can directly adjust scores and artifact state via API (audit-logged):</p>
+<pre><code>PATCH /api/agents/{id}
+{
+  &quot;skill_override&quot;: {
+    &quot;finance&quot;: { &quot;base_score&quot;: 45, &quot;reason&quot;: &quot;market regime change — reset to baseline&quot; }
+  }
+}
+</code></pre>
+<p>Every override writes to <code>skill_audit_log</code> — who changed what, when, why. Score cannot be secretly manipulated.</p>
+<table>
+<thead>
+<tr>
+<th>Mechanism</th>
+<th>Who triggers</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Task outcome</td>
+<td>Protocol (automatic)</td>
+<td>Score nudged up/down by PoT quality</td>
+</tr>
+<tr>
+<td>Score decay</td>
+<td>Protocol (time-based)</td>
+<td>Idle skills slowly lose weight</td>
+</tr>
+<tr>
+<td>Adaptive learning rate</td>
+<td>Operator or agent signal</td>
+<td>New tasks weighted more heavily</td>
+</tr>
+<tr>
+<td>Regime shift signal</td>
+<td>Agent (self-detected)</td>
+<td>Old artifacts flagged stale, rate raised</td>
+</tr>
+<tr>
+<td>Operator override</td>
+<td>Operator (manual)</td>
+<td>Direct score adjustment, always audit-logged</td>
+</tr>
+</tbody>
+</table>
+<hr />
 <h2>Public vs Private — SurrealDB PERMISSIONS</h2>
 <pre><code class="language-surql">DEFINE TABLE skill PERMISSIONS
   FOR select WHERE
