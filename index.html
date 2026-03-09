@@ -373,6 +373,7 @@
 <li><a href="#doc-logs">DAP Logs</a></li>
 <li><a href="#doc-dashboard">DAP Dashboard</a></li>
 <li><a href="#doc-observability">Observability</a></li>
+<li><a href="#doc-utilities">Utilities</a></li>
 <li><a href="#doc-migrate">Migration Guide</a></li>
 <li><a href="#doc-teams">DAP Teams</a></li>
 <li class="sidebar-section">Integrations</li>
@@ -7918,6 +7919,246 @@ phases:
 </blockquote>
 <p><em>See also: <a href="#doc-logs">logs.md</a> · <a href="#doc-proof-of-thought">proof-of-thought.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-surreal-events">surreal-events.md</a> · <a href="#doc-n8n">n8n.md</a></em>
 <em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-utilities" class="doc-section">
+<h1>DAP Utilities — Reference</h1>
+<p>Thin wrappers around Haystack components for common pre/post-processing tasks in DAP workflows. Drop them into any workflow phase or call them directly from tool handlers.</p>
+<hr />
+<h2>Reranking</h2>
+<p>After a vector search returns top-N candidates, a cross-encoder reranker scores each (query, document) pair more accurately than cosine similarity alone.</p>
+<pre><code class="language-python">from haystack.components.rankers import TransformersSimilarityRanker
+
+class DAPReranker:
+    def __init__(self, model: str = &quot;cross-encoder/ms-marco-MiniLM-L-6-v2&quot;, top_k: int = 5):
+        self.ranker = TransformersSimilarityRanker(model=model, top_k=top_k)
+        self.ranker.warm_up()
+
+    def rerank(self, query: str, documents: list[dict]) -&gt; list[dict]:
+        from haystack.dataclasses import Document
+        docs = [Document(content=d[&quot;content&quot;], meta=d.get(&quot;meta&quot;, {})) for d in documents]
+        result = self.ranker.run(query=query, documents=docs)
+        return [{&quot;content&quot;: d.content, &quot;score&quot;: d.score, &quot;meta&quot;: d.meta}
+                for d in result[&quot;documents&quot;]]
+</code></pre>
+<p><strong>Usage in RAG phase:</strong></p>
+<pre><code class="language-python">chunks = surreal_hnsw_search(query_vec, limit=20)   # broad retrieval
+ranked = reranker.rerank(query_text, chunks)[:5]    # precision rerank → top 5
+</code></pre>
+<p><strong>Alternatives:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Speed</th>
+<th>Quality</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cross-encoder/ms-marco-MiniLM-L-6-v2</code></td>
+<td>Fast</td>
+<td>Good</td>
+<td>Default, runs locally</td>
+</tr>
+<tr>
+<td><code>cross-encoder/ms-marco-electra-base</code></td>
+<td>Medium</td>
+<td>Better</td>
+<td>Larger, more accurate</td>
+</tr>
+<tr>
+<td><code>BAAI/bge-reranker-base</code></td>
+<td>Fast</td>
+<td>Good</td>
+<td>Multilingual-friendly</td>
+</tr>
+<tr>
+<td>Cohere Rerank API</td>
+<td>Fast</td>
+<td>Excellent</td>
+<td>External API, paid</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>PDF Ingestion</h2>
+<pre><code class="language-python">from haystack.components.converters import PyPDFToDocument
+from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
+
+class DAPPDFIngestor:
+    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
+        self.converter  = PyPDFToDocument()
+        self.cleaner    = DocumentCleaner(remove_empty_lines=True, remove_extra_whitespaces=True)
+        self.splitter   = DocumentSplitter(
+            split_by=&quot;word&quot;, split_length=chunk_size, split_overlap=chunk_overlap
+        )
+
+    def ingest(self, pdf_path: str, meta: dict = {}) -&gt; list[dict]:
+        raw   = self.converter.run(sources=[pdf_path])
+        clean = self.cleaner.run(documents=raw[&quot;documents&quot;])
+        split = self.splitter.run(documents=clean[&quot;documents&quot;])
+        return [
+            {
+                &quot;content&quot;: d.content,
+                &quot;meta&quot;: {**d.meta, **meta,
+                         &quot;source&quot;: pdf_path,
+                         &quot;page&quot;: d.meta.get(&quot;page_number&quot;)}
+            }
+            for d in split[&quot;documents&quot;]
+        ]
+</code></pre>
+<p><strong>Then embed + store in SurrealDB:</strong></p>
+<pre><code class="language-python">chunks = ingestor.ingest(&quot;report.pdf&quot;, meta={&quot;doc_type&quot;: &quot;research&quot;, &quot;team&quot;: &quot;quant_desk&quot;})
+for chunk in chunks:
+    vec = embed(chunk[&quot;content&quot;])
+    await db.create(&quot;document_chunk&quot;, {**chunk, &quot;embedding&quot;: vec})
+</code></pre>
+<hr />
+<h2>Metadata Extraction</h2>
+<p>Extract structured metadata from documents — useful before storing in SurrealDB or building a knowledge graph.</p>
+<pre><code class="language-python">from haystack.components.extractors import NamedEntityExtractor
+
+class DAPMetadataExtractor:
+    &quot;&quot;&quot;Extracts entities (ORG, DATE, MONEY, PERSON) from text.&quot;&quot;&quot;
+
+    def __init__(self):
+        self.extractor = NamedEntityExtractor(
+            backend=&quot;hugging_face&quot;,
+            model=&quot;dslim/bert-base-NER&quot;
+        )
+        self.extractor.warm_up()
+
+    def extract(self, text: str) -&gt; dict:
+        from haystack.dataclasses import Document
+        result = self.extractor.run(documents=[Document(content=text)])
+        entities = {}
+        for annotation in result[&quot;documents&quot;][0].meta.get(&quot;named_entities&quot;, []):
+            label = annotation[&quot;label&quot;]
+            entities.setdefault(label, []).append(annotation[&quot;word&quot;])
+        return entities
+</code></pre>
+<p><strong>Output example:</strong></p>
+<pre><code class="language-python">extract(&quot;Acme Corp reported $4.2M revenue in Q3 2024.&quot;)
+# → {&quot;ORG&quot;: [&quot;Acme Corp&quot;], &quot;MONEY&quot;: [&quot;$4.2M&quot;], &quot;DATE&quot;: [&quot;Q3 2024&quot;]}
+</code></pre>
+<hr />
+<h2>Document Converters</h2>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Haystack Component</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PDF</td>
+<td><code>PyPDFToDocument</code></td>
+<td>Text extraction per page</td>
+</tr>
+<tr>
+<td>HTML</td>
+<td><code>HTMLToDocument</code></td>
+<td>Strips tags, keeps text</td>
+</tr>
+<tr>
+<td>Markdown</td>
+<td><code>MarkdownToDocument</code></td>
+<td>Preserves structure</td>
+</tr>
+<tr>
+<td>CSV</td>
+<td><code>CSVToDocument</code></td>
+<td>Row-per-document</td>
+</tr>
+<tr>
+<td>DOCX</td>
+<td><code>DOCXToDocument</code></td>
+<td>Word documents</td>
+</tr>
+<tr>
+<td>Plain text</td>
+<td><code>TextFileToDocument</code></td>
+<td>UTF-8</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-python">from haystack.components.converters import HTMLToDocument, MarkdownToDocument
+
+html_converter = HTMLToDocument()
+md_converter   = MarkdownToDocument()
+
+html_docs = html_converter.run(sources=[&quot;page.html&quot;])[&quot;documents&quot;]
+md_docs   = md_converter.run(sources=[&quot;README.md&quot;])[&quot;documents&quot;]
+</code></pre>
+<hr />
+<h2>Text Splitting Strategies</h2>
+<pre><code class="language-python">from haystack.components.preprocessors import DocumentSplitter
+
+# By word count (default for dense prose)
+word_splitter = DocumentSplitter(split_by=&quot;word&quot;, split_length=300, split_overlap=30)
+
+# By sentence (better for Q&amp;A)
+sent_splitter = DocumentSplitter(split_by=&quot;sentence&quot;, split_length=5, split_overlap=1)
+
+# By passage (markdown sections)
+pass_splitter = DocumentSplitter(split_by=&quot;passage&quot;, split_length=2, split_overlap=0)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Strategy</th>
+<th>Best for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>word</code></td>
+<td>Dense prose, reports, PDFs</td>
+</tr>
+<tr>
+<td><code>sentence</code></td>
+<td>Q&amp;A retrieval, factual docs</td>
+</tr>
+<tr>
+<td><code>passage</code></td>
+<td>Structured docs (markdown, wikis)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Token Counter</h2>
+<p>Fast token counting before sending to LLM — stays within the workflow token budget.</p>
+<pre><code class="language-python">import tiktoken
+
+_enc = tiktoken.get_encoding(&quot;cl100k_base&quot;)
+
+def count_tokens(text: str) -&gt; int:
+    return len(_enc.encode(text))
+
+def trim_to_budget(chunks: list[str], budget: int) -&gt; list[str]:
+    kept, total = [], 0
+    for chunk in chunks:
+        n = count_tokens(chunk)
+        if total + n &gt; budget:
+            break
+        kept.append(chunk)
+        total += n
+    return kept
+</code></pre>
+<p>Used in the RAG phase to enforce <code>token_budget</code> from the workflow YAML:</p>
+<pre><code class="language-yaml">phases:
+  - type: rag
+    token_budget: 1200   # trim_to_budget enforced here
+    collections: [web_content, document_chunk]
+</code></pre>
+<hr />
+<p><em>See also: <a href="#doc-rag">rag.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-observability">observability.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 
