@@ -375,6 +375,7 @@
 <li><a href="#doc-observability">Observability</a></li>
 <li><a href="#doc-utilities">Utilities</a></li>
 <li><a href="#doc-graphrag">GraphRAG</a></li>
+<li><a href="#doc-packages">Packages</a></li>
 <li><a href="#doc-migrate">Migration Guide</a></li>
 <li><a href="#doc-teams">DAP Teams</a></li>
 <li class="sidebar-section">Integrations</li>
@@ -666,6 +667,10 @@ Everything in the Protocol layer works in any deployment — a fintech applicati
 <tr>
 <td><a href="#doc-apps">apps.md</a></td>
 <td>DAP Apps — async DAPQueue, @job decorator, Worker Pool — <strong>protocol feature, not a game thing</strong></td>
+</tr>
+<tr>
+<td><a href="#doc-packages">packages.md</a></td>
+<td>DAP Packages — git-based tool distribution, dap-package.yaml, dap install, PoD as delivery proof</td>
 </tr>
 <tr>
 <td><a href="#doc-logs">logs.md</a></td>
@@ -8466,6 +8471,155 @@ POST /api/ontology/concepts               — manually add concept + link
 <hr />
 <p><em>See also: <a href="#doc-rag">rag.md</a> · <a href="#doc-skills">skills.md</a> · <a href="#doc-artifacts">artifacts.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-utilities">utilities.md</a></em>
 <em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-packages" class="doc-section">
+<h1>DAP Packages — Reference</h1>
+<p>A DAP Package is a git repository containing tool definitions, workflows, and artifacts. <code>dap install</code> pulls the repo, registers all tools, and issues a PoD certificate per registration — no separate signing infrastructure needed.</p>
+<blockquote>
+<p>PoD already provides cryptographic delivery proof for every tool registration. Packages build on this.</p>
+</blockquote>
+<hr />
+<h2>Package Structure</h2>
+<pre><code>my-finance-tools/
+├── dap-package.yaml        ← package manifest
+├── tools/
+│   ├── market_analysis.yaml
+│   ├── portfolio_optimizer.yaml
+│   └── risk_calculator.yaml
+├── workflows/
+│   ├── full_analysis_flow.yaml.j2
+│   └── rebalance_flow.yaml.j2
+└── artifacts/
+    └── rsi_strategy.py
+</code></pre>
+<hr />
+<h2><code>dap-package.yaml</code></h2>
+<pre><code class="language-yaml">name: finance-tools
+version: 1.2.0
+description: &quot;Market analysis and portfolio optimization tools&quot;
+author: quant_desk
+license: MIT
+repository: https://github.com/org/finance-tools
+dap_version_min: &quot;2.0&quot;
+
+# Tools in this package
+tools:
+  - tools/market_analysis.yaml
+  - tools/portfolio_optimizer.yaml
+  - tools/risk_calculator.yaml
+
+# Workflows bundled with the package
+workflows:
+  - workflows/full_analysis_flow.yaml.j2
+  - workflows/rebalance_flow.yaml.j2
+
+# Artifacts pre-seeded into the skill store on install
+artifacts:
+  - path: artifacts/rsi_strategy.py
+    skill: finance
+    artifact_type: script
+    quality_score: 0.82
+
+# Optional: declare dependencies on other packages
+dependencies:
+  - name: dap-core-utils
+    version: &quot;&gt;=1.0&quot;
+    source: https://github.com/dap-org/core-utils
+
+tags: [finance, trading, portfolio]
+</code></pre>
+<hr />
+<h2>Install</h2>
+<pre><code class="language-bash"># From git repo
+dap install https://github.com/org/finance-tools
+
+# Specific version / tag
+dap install https://github.com/org/finance-tools@v1.2.0
+
+# Local path (development)
+dap install ./my-finance-tools
+
+# From DAPNet public registry
+dap install finance-tools
+</code></pre>
+<p>All three steps happen atomically:
+1. Clone repo (or pull if already installed)
+2. Register each tool → safety scan → bloat score → <code>tool_registry</code>
+3. <strong>PoD certificate issued per tool</strong> — Ed25519-signed proof of registration</p>
+<hr />
+<h2>PoD as Delivery Proof</h2>
+<p>Every tool registration produces a PoD certificate stored in <code>tool_call_log</code>:</p>
+<pre><code class="language-json">{
+  &quot;operation&quot;: &quot;tool_register&quot;,
+  &quot;tool_name&quot;: &quot;market_analysis&quot;,
+  &quot;version&quot;: &quot;1.2.0&quot;,
+  &quot;package&quot;: &quot;finance-tools&quot;,
+  &quot;result_hash&quot;: &quot;sha256:a3f9...&quot;,
+  &quot;pod_cert&quot;: &quot;ed25519:...&quot;,
+  &quot;registered_at&quot;: &quot;2026-01-15T10:23:00Z&quot;
+}
+</code></pre>
+<p>This means:
+- You can verify any tool's install provenance at any time
+- Tampered tool files → hash mismatch → registration rejected
+- Audit trail: who installed what, when, from which repo commit</p>
+<pre><code class="language-bash"># Verify installed package integrity
+dap verify finance-tools
+
+# Output:
+# market_analysis     v1.2.0  ✓  PoD cert valid  sha256:a3f9...
+# portfolio_optimizer v1.2.0  ✓  PoD cert valid  sha256:7b2c...
+# risk_calculator     v1.2.0  ✓  PoD cert valid  sha256:d41a...
+</code></pre>
+<hr />
+<h2>Install Flow</h2>
+<pre><code class="language-mermaid">graph LR
+    GIT[&quot;git clone\nrepo@version&quot;]
+    PARSE[&quot;Parse\ndap-package.yaml&quot;]
+    DEPS[&quot;Resolve\ndependencies&quot;]
+    SCAN[&quot;Safety scan\nper tool&quot;]
+    BLOAT[&quot;bloat_score\ncomputed&quot;]
+    REG[&quot;tool_registry\nINSERT&quot;]
+    POD[&quot;PoD cert\nissued per tool&quot;]
+    IDX[&quot;index_version\nbumped → agents\nre-discover&quot;]
+
+    GIT --&gt; PARSE --&gt; DEPS --&gt; SCAN --&gt; BLOAT --&gt; REG --&gt; POD --&gt; IDX
+</code></pre>
+<p>Dependency resolution is shallow — DAP packages declare deps but do not nest arbitrarily. Circular deps are rejected at parse time.</p>
+<hr />
+<h2>Versioning</h2>
+<p>Tools inside a package carry their own version in their YAML (<code>version: 1.2.0</code>). When a package is updated:</p>
+<ul>
+<li>Old tool versions are <strong>deprecated</strong> (still callable, not returned by <code>DiscoverTools</code>)</li>
+<li>New versions are registered fresh</li>
+<li>Agents re-discover automatically via <code>index_version</code> bump</li>
+</ul>
+<pre><code class="language-bash">dap upgrade finance-tools          # pull latest, re-register all tools
+dap upgrade finance-tools@v1.3.0   # pin to specific version
+</code></pre>
+<hr />
+<h2>Publish to DAPNet Registry</h2>
+<pre><code class="language-bash"># Publish package to DAPNet public registry
+dap publish --registry dapnet
+
+# Requires:
+# - Valid DAPNet identity (agent token)
+# - All tools pass safety scan
+# - dap-package.yaml present and valid
+</code></pre>
+<p>Published packages are indexed in the DAPNet <code>tool_registry</code> bucket and discoverable by all DAPNet agents via <code>SearchTools</code>.</p>
+<hr />
+<h2>Private Packages</h2>
+<pre><code class="language-yaml"># dap-package.yaml
+visibility: private          # not published to DAPNet registry
+team: quant_desk             # only agents in this team can install
+</code></pre>
+<p>Private packages install into a team-scoped namespace — tools are only visible to agents in that team. ACL enforced via Casbin team policies.</p>
+<hr />
+<p><em>See also: <a href="#doc-tool-registration">tool-registration.md</a> · <a href="#doc-proof-of-delivery">proof-of-delivery.md</a> · <a href="#doc-bloat-score">bloat-score.md</a> · <a href="#doc-teams">teams.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 
