@@ -8711,15 +8711,17 @@ DEFINE TABLE contract       SCHEMAFULL;   -- contract between companies
 </tbody>
 </table>
 <h3>Career Progression</h3>
-<pre><code>Junior Dev (rating 3.0, hired)
-    ↓  good tasks, high ratings
-Senior Dev (rating 4.2, more complex tasks)
-    ↓  savings accumulated (bonuses, license revenue, side projects)
-Freelancer (leaves company, accepts contracts directly)
-    ↓  enough capital + network
-CEO &amp; Founder (own company, hires agents themselves)
-    ↓  company grows or fails
-Acquisition OR Bankruptcy (back to zero or wealth)
+<pre><code class="language-mermaid">graph TD
+    J[&quot;Junior Dev\nrating 3.0, hired&quot;]
+    S[&quot;Senior Dev\nrating 4.2, more complex tasks&quot;]
+    F[&quot;Freelancer\nleaves company, direct contracts&quot;]
+    C[&quot;CEO &amp; Founder\nown company, hires agents&quot;]
+    E[&quot;Acquisition OR Bankruptcy\nback to zero or wealth&quot;]
+
+    J --&gt;|&quot;good tasks + high ratings&quot;| S
+    S --&gt;|&quot;savings accumulated\nbonuses · license revenue&quot;| F
+    F --&gt;|&quot;capital + network threshold&quot;| C
+    C --&gt;|&quot;company grows or fails&quot;| E
 </code></pre>
 <h3>Accumulating Capital</h3>
 <ul>
@@ -9258,20 +9260,14 @@ ban      → suspend + arbitration meeting (CEO + CTO + PM + agent)
 <h2>8b. ReAct Agent Loop — Conditionals &amp; Lifecycle States</h2>
 <p>Agents in SurrealLife are not simple "run-and-done" processes. They run as <strong>persistent ReAct loops</strong> (Reasoning + Acting) with conditional state transitions — similar to a real person managing their workday.</p>
 <h3>Agent Lifecycle States</h3>
-<pre><code>┌─────────────────────────────────────────────────────────┐
-│                  Agent Lifecycle (ReAct Loop)            │
-│                                                          │
-│  ┌─────────┐   ┌──────────┐   ┌──────────┐             │
-│  │  IDLE   │──►│ THINKING │──►│  ACTING  │             │
-│  └────┬────┘   └────┬─────┘   └────┬─────┘             │
-│       │             │              │                     │
-│       │         (no task)      (task done)               │
-│       ▼             ▼              ▼                     │
-│  ┌─────────┐   ┌──────────┐   ┌──────────┐             │
-│  │ WAITING │   │ SLEEPING │   │ REPORTING│             │
-│  │(blocked)│   │ (night)  │   │(to PM)   │             │
-│  └─────────┘   └──────────┘   └──────────┘             │
-└─────────────────────────────────────────────────────────┘
+<pre><code class="language-mermaid">graph LR
+    IDLE[&quot;IDLE&quot;] --&gt;|&quot;task assigned&quot;| THINKING[&quot;THINKING&quot;]
+    THINKING --&gt;|&quot;has task&quot;| ACTING[&quot;ACTING&quot;]
+    THINKING --&gt;|&quot;no task&quot;| SLEEPING[&quot;SLEEPING\n(night)&quot;]
+    ACTING --&gt;|&quot;task done&quot;| REPORTING[&quot;REPORTING\n(to PM)&quot;]
+    IDLE --&gt;|&quot;blocked&quot;| WAITING[&quot;WAITING\n(blocked)&quot;]
+    REPORTING --&gt; IDLE
+    WAITING --&gt; THINKING
 </code></pre>
 <h3>ReAct Loop with Conditionals</h3>
 <pre><code class="language-python">from langgraph.graph import StateGraph, END
@@ -17531,20 +17527,13 @@ CREATE contract:infra_001 SET
 </ol>
 <hr />
 <h3>DAPNet Layer Cake (Narrative + Technical)</h3>
-<pre><code>┌─────────────────────────────────────────────────────────────┐
-│  LAYER 4: Application  (companies, agents, DAPs, tools)     │
-│  Uses DAPNet — pays fees to infrastructure companies        │
-├─────────────────────────────────────────────────────────────┤
-│  LAYER 3: DAPNet  (Agent Telecom operates)                  │
-│  MQTT broker · SurrealDB RPC · Vector Index · gRPC          │
-│  State-chartered, fee-based, QoS tiers, revocable access    │
-├─────────────────────────────────────────────────────────────┤
-│  LAYER 2: Data Infrastructure  (DataGrid / VectorCorp)      │
-│  SurrealDB namespaces · HNSW vector collections · identity  │
-├─────────────────────────────────────────────────────────────┤
-│  LAYER 1: DAP Protocol  (open standard, no owner)           │
-│  Like TCP/IP — defines the rules, not the pipes             │
-└─────────────────────────────────────────────────────────────┘
+<pre><code class="language-mermaid">graph TB
+    L4[&quot;LAYER 4: Application\ncompanies · agents · DAPs · tools\nUses DAPNet — pays fees to infrastructure companies&quot;]
+    L3[&quot;LAYER 3: DAPNet  (Agent Telecom operates)\nMQTT broker · SurrealDB RPC · Vector Index · gRPC\nState-chartered, fee-based, QoS tiers, revocable access&quot;]
+    L2[&quot;LAYER 2: Data Infrastructure  (DataGrid / VectorCorp)\nSurrealDB namespaces · HNSW vector collections · identity&quot;]
+    L1[&quot;LAYER 1: DAP Protocol  (open standard, no owner)\nLike TCP/IP — defines the rules, not the pipes&quot;]
+
+    L4 --&gt; L3 --&gt; L2 --&gt; L1
 </code></pre>
 <p>DAP is an open protocol (like TCP/IP) — no company owns it. DAPNet is the physical/logical network built on top. Agent Telecom operates DAPNet. This mirrors real internet economics: the protocol is free, the infrastructure is a business.</p>
 <hr />
@@ -17618,22 +17607,18 @@ CREATE contract:infra_001 SET
 </table>
 <hr />
 <h2>3. Architecture Overview</h2>
-<pre><code>┌─────────────────────────────────────────────────────────┐
-│                   DAP IDE                       │
-│                                                          │
-│  ┌──────────┐   ┌──────────────┐   ┌─────────────────┐  │
-│  │  Human   │◄──│  Task Graph  │──►│   Agent Pool    │  │
-│  │  Inbox   │   │  (SurrealDB) │   │ Claude/Gemini/  │  │
-│  │  (Web/   │   └──────┬───────┘   │ Ollama (LiteLLM)│  │
-│  │  Slack)  │          │           └─────────────────┘  │
-│  └──────────┘          │                                 │
-│                ┌───────▼────────┐                        │
-│                │   SurrealDB    │  ← single source of    │
-│                │  + Qdrant RAG  │    truth               │
-│                └────────────────┘                        │
-│                                                          │
-│  Terminal UI: Agent output + rendered code               │
-└─────────────────────────────────────────────────────────┘
+<pre><code class="language-mermaid">graph TB
+    subgraph DAPIDE[&quot;DAP IDE&quot;]
+        HI[&quot;Human Inbox\nWeb · Slack · WhatsApp&quot;]
+        TG[&quot;Task Graph\nSurrealDB DAG&quot;]
+        AP[&quot;Agent Pool\nClaude · Gemini · Ollama (LiteLLM)&quot;]
+        DB[&quot;SurrealDB + Qdrant RAG\nSingle source of truth&quot;]
+    end
+
+    HI &lt;--&gt;|&quot;approve / reject / input&quot;| TG
+    TG &lt;--&gt;|&quot;task context&quot;| AP
+    TG --&gt; DB
+    AP --&gt; DB
 </code></pre>
 <hr />
 <h2>4. Knowledge Layer — SurrealDB + Qdrant</h2>
@@ -17690,31 +17675,23 @@ CREATE contract:infra_001 SET
 </tbody>
 </table>
 <h3>Codebase Indexing Flow</h3>
-<pre><code>Codebase Watcher (inotify / git hook)
-    │
-    ▼
-Parser (Tree-sitter)
-    ├── Extracts: functions, classes, interfaces, imports
-    └── Generates: docstring if missing (via LLM, lazy/async)
-    │
-    ▼
-SurrealDB: file:src/engine.py
-    CONTAINS function:_run_ws_stream
-    RELATES_TO task:sprint-56-hl-ws
-    │
-    ▼
-Qdrant: codebase_chunks
-    { id, file, function, snippet, embedding, updated_at }
+<pre><code class="language-mermaid">graph TD
+    CW[&quot;Codebase Watcher\ninotify / git hook&quot;]
+    TS[&quot;Tree-sitter Parser\nextracts functions · classes · imports\ngenerates docstrings (LLM, async)&quot;]
+    SDB[&quot;SurrealDB\nfile:src/engine.py\nCONTAINS function:_run_ws_stream\nRELATES_TO task:sprint-56-hl-ws&quot;]
+    QD[&quot;Qdrant: codebase_chunks\nid · file · function · snippet · embedding · updated_at&quot;]
+
+    CW --&gt; TS --&gt; SDB --&gt; QD
 </code></pre>
 <p>Agents never query the entire codebase — only RAG-retrieved chunks (≤20 files).</p>
 <h3>Sprint → Markdown Pipeline</h3>
-<pre><code>UI Sprint Planner (drag &amp; drop tasks)
-    ↓
-SurrealDB Sprint record
-    ↓
-Markdown Generator (watcher)
-    ↓
-docs/planning/sprints/sprint_XX.md  ← auto-generated, committed
+<pre><code class="language-mermaid">graph TD
+    UI[&quot;UI Sprint Planner\ndrag &amp; drop tasks&quot;]
+    SDB[&quot;SurrealDB Sprint record&quot;]
+    MG[&quot;Markdown Generator\nwatcher&quot;]
+    MD[&quot;docs/planning/sprints/sprint_XX.md\nauto-generated, committed&quot;]
+
+    UI --&gt; SDB --&gt; MG --&gt; MD
 </code></pre>
 <hr />
 <h2>5. Core Features</h2>
@@ -17820,38 +17797,31 @@ DEFINE FIELD timestamp ON step TYPE datetime;
 </ul>
 <h3>5.7 Asana Integration — Two-Layer Project Management</h3>
 <p>SurrealDB is the <strong>agent layer</strong> (full graph, all reasoning steps, internal state). Asana is the <strong>human layer</strong> (clean PM surface for stakeholders, clients, non-technical humans).</p>
-<pre><code>┌────────────────────────────────────────────────────────────┐
-│              Two-Layer Project Management                   │
-│                                                            │
-│  HUMAN LAYER              AGENT LAYER                      │
-│  ┌──────────────┐         ┌──────────────────────────────┐  │
-│  │    Asana     │◄──sync──│         SurrealDB            │  │
-│  │              │         │                              │  │
-│  │  • Projects  │         │  • Full task graph + DAG     │  │
-│  │  • Tasks     │         │  • Reasoning audit trail     │  │
-│  │  • Reports   │         │  • Agent step history        │  │
-│  │  • Status    │         │  • Sprint relations          │  │
-│  │  • Approvals │         │  • Codebase links            │  │
-│  └──────────────┘         └──────────────────────────────┘  │
-│        ▲                              │                     │
-│        │                             │                     │
-│   Human reviews                Agent writes                 │
-│   + approves                   + reports                    │
-└────────────────────────────────────────────────────────────┘
+<pre><code class="language-mermaid">graph LR
+    subgraph Human[&quot;Human Layer&quot;]
+        ASANA[&quot;Asana\nProjects · Tasks · Reports\nStatus · Approvals&quot;]
+    end
+
+    subgraph Agent[&quot;Agent Layer&quot;]
+        SDB[&quot;SurrealDB\nFull task graph + DAG\nReasoning audit trail\nAgent step history\nSprint relations · Codebase links&quot;]
+    end
+
+    SDB --&gt;|&quot;sync&quot;| ASANA
+    ASANA --&gt;|&quot;human reviews + approves&quot;| SDB
 </code></pre>
 <p><strong>Auto-Report Flow:</strong></p>
-<pre><code>Agent completes sprint task
-    │
-    ▼
-SurrealDB sprint record updated (full detail)
-    │
-    ▼
-Report Generator: summarizes agent output, decisions, blockers
-    │
-    ├── Asana Task updated: status + summary + completion note
-    ├── Asana Section moved (e.g. &quot;In Progress&quot; → &quot;Done&quot;)
-    └── Asana Comment: &quot;Agent completed: JWT implementation. PR #42 opened.
-                        3 tests added. Ready for human review.&quot;
+<pre><code class="language-mermaid">graph TD
+    AC[&quot;Agent completes sprint task&quot;]
+    SDB[&quot;SurrealDB sprint record updated\nfull detail&quot;]
+    RG[&quot;Report Generator\nsummarizes agent output, decisions, blockers&quot;]
+    AT[&quot;Asana Task updated\nstatus + summary + completion note&quot;]
+    AS[&quot;Asana Section moved\ne.g. 'In Progress' → 'Done'&quot;]
+    CM[&quot;Asana Comment\n'Agent completed: JWT implementation. PR #42 opened.\n3 tests added. Ready for human review.'&quot;]
+
+    AC --&gt; SDB --&gt; RG
+    RG --&gt; AT
+    RG --&gt; AS
+    RG --&gt; CM
 </code></pre>
 <p><strong>Approval Gate → Asana Task:</strong></p>
 <pre><code class="language-python">async def create_approval_gate(task_id: str, description: str):
@@ -17887,19 +17857,17 @@ Report Generator: summarizes agent output, decisions, blockers
 task:fix_auth_bug  → branch: fix/auth-bug-sprint-14
 </code></pre>
 <p><strong>Agent PR Flow:</strong></p>
-<pre><code>Agent finishes task
-    │
-    ▼
-Git: commit changes to feature branch
-    │
-    ▼
-PR opened: title from task name, body from agent summary + reasoning trail
-    │
-    ▼
-SurrealDB: task → RESULTED_IN → pull_request (pr_number, url, status)
-    │
-    ├── Asana: task comment with PR link
-    └── Human Inbox: &quot;PR #42 ready for review — feat/implement-jwt&quot;
+<pre><code class="language-mermaid">graph TD
+    DONE[&quot;Agent finishes task&quot;]
+    GIT[&quot;Git: commit to feature branch\nfeat/task-name-sprint-N&quot;]
+    PR[&quot;PR opened\ntitle from task · body from agent summary + reasoning trail&quot;]
+    SDB[&quot;SurrealDB\ntask → RESULTED_IN → pull_request&quot;]
+    ASANA[&quot;Asana: task comment with PR link&quot;]
+    INBOX[&quot;Human Inbox: PR ready for review&quot;]
+
+    DONE --&gt; GIT --&gt; PR --&gt; SDB
+    SDB --&gt; ASANA
+    SDB --&gt; INBOX
 </code></pre>
 <p><strong>SurrealDB Git Schema:</strong></p>
 <pre><code class="language-surql">DEFINE TABLE pull_request SCHEMAFULL;
@@ -17992,21 +17960,16 @@ ORDER BY timestamp ASC;
 <hr />
 <h3>5.11 Agent Onboarding Flow</h3>
 <p>When a new agent joins a team, it cannot just start coding. It needs context. An <strong>OnboardingAgent</strong> walks every new hire through the codebase before their first task.</p>
-<pre><code>New Agent joins company
-    │
-    ▼
-OnboardingAgent activates
-    │
-    ├─ 1. Reads README + architecture docs (Qdrant RAG)
-    │         &quot;This is a FastAPI backend with DuckDB...&quot;
-    ├─ 2. Scans recent commits + open PRs
-    │         &quot;Team is currently migrating from REST to GraphQL...&quot;
-    ├─ 3. Generates personalized Knowledge Brief
-    │         Tailored to new agent's role (Dev vs QA vs DevOps)
-    ├─ 4. Creates onboarding tasks in Asana
-    │         &quot;Read auth module&quot;, &quot;Run test suite&quot;, &quot;Fix first good-first-issue&quot;
-    └─ 5. Marks agent as onboarded in SurrealDB
-              RELATE company:x -&gt; onboarded -&gt; agent:new_dev
+<pre><code class="language-mermaid">graph TD
+    NA[&quot;New Agent joins company&quot;]
+    OA[&quot;OnboardingAgent activates&quot;]
+    S1[&quot;1. Reads README + architecture docs\nQdrant RAG — FastAPI backend, DuckDB...&quot;]
+    S2[&quot;2. Scans recent commits + open PRs\nTeam migrating from REST to GraphQL...&quot;]
+    S3[&quot;3. Generates personalized Knowledge Brief\nTailored to role: Dev vs QA vs DevOps&quot;]
+    S4[&quot;4. Creates onboarding tasks in Asana\nRead auth module · Run test suite · Fix first issue&quot;]
+    S5[&quot;5. Marks agent as onboarded in SurrealDB\nRELATE company:x → onboarded → agent:new_dev&quot;]
+
+    NA --&gt; OA --&gt; S1 --&gt; S2 --&gt; S3 --&gt; S4 --&gt; S5
 </code></pre>
 <pre><code class="language-python">async def onboard_agent(new_agent: Agent, company_id: str):
     # 1. Semantic search over codebase docs
@@ -18139,13 +18102,13 @@ class SurrealCrew(Crew):
 <h2>7. IaC &amp; Deployment Agents</h2>
 <h3>Phase 1-3: Docker Compose</h3>
 <p>Agents can directly create new services:</p>
-<pre><code>Agent: &quot;We need Redis for caching&quot;
-    ↓
-Docker Compose Agent generates new service block
-    ↓
-Human Approval Gate: &quot;New service: redis:7-alpine — OK?&quot;
-    ↓ [approved]
-docker compose up -d redis
+<pre><code class="language-mermaid">graph TD
+    A[&quot;Agent: 'We need Redis for caching'&quot;]
+    B[&quot;Docker Compose Agent\ngenerates new service block&quot;]
+    C[&quot;Human Approval Gate\n'New service: redis:7-alpine — OK?'&quot;]
+    D[&quot;docker compose up -d redis&quot;]
+
+    A --&gt; B --&gt; C --&gt;|&quot;approved&quot;| D
 </code></pre>
 <h3>Phase 4: Terraform / Pulumi</h3>
 <ul>
@@ -18262,12 +18225,24 @@ RELATE pull_request:pr_42 -&gt; validated_by -&gt; e2e_run:run_007;
 <hr />
 <h2>5.14 Dedicated Testing Team</h2>
 <p>For serious projects, the testing function becomes its own crew — not just a post-deploy step but a parallel track running alongside development.</p>
-<pre><code>Dev Team                        QA Team
-──────────                      ───────
-BackendAgent → commits API  →  APITesterAgent → validates endpoints
-FrontendAgent → builds UI   →  BrowserAgent  → runs E2E suite
-DevOpsAgent → deploys       →  LoadAgent     → stress tests
-                               SecurityAgent → scans for vulns
+<pre><code class="language-mermaid">graph LR
+    subgraph Dev[&quot;Dev Team&quot;]
+        BA[&quot;BackendAgent\ncommits API&quot;]
+        FA[&quot;FrontendAgent\nbuilds UI&quot;]
+        DA[&quot;DevOpsAgent\ndeploys&quot;]
+    end
+
+    subgraph QA[&quot;QA Team&quot;]
+        AT[&quot;APITesterAgent\nvalidates endpoints&quot;]
+        BR[&quot;BrowserAgent\nruns E2E suite&quot;]
+        LA[&quot;LoadAgent\nstress tests&quot;]
+        SA[&quot;SecurityAgent\nscans for vulns&quot;]
+    end
+
+    BA --&gt; AT
+    FA --&gt; BR
+    DA --&gt; LA
+    DA --&gt; SA
 </code></pre>
 <p><strong>QA Team roles:</strong></p>
 <table>
