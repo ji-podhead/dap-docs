@@ -1156,14 +1156,9 @@ result = tool.execute(params, db_session=surreal_session)
 
 <section id="doc-tool-registration" class="doc-section">
 <h1>DAP Tool Registration — Reference</h1>
-<blockquote>
-<p><strong>Protocol vs Game:</strong> Tool registration, handler types, bloat scoring, and Qdrant indexing are <strong>DAP protocol features</strong> — they work in any deployment. Game masters, IntegrityAgent review, and SurrealLife-specific roles (<code>ceo</code>, <code>ciso</code>) are <strong>SurrealLife game-layer features</strong>. See <a href="#doc-dap-games">dap-games.md</a> for the full split.</p>
-</blockquote>
 <p>Tools in DAP are registered into a Qdrant vector index backed by SurrealDB records. Registration is the entry point for any tool — built-in or custom — to become discoverable and invocable.</p>
 <hr />
 <h2>YAML Tool Definition</h2>
-<p>Every tool is defined as a YAML file with a standard structure:</p>
-<h3>Protocol Example (any DAP deployment)</h3>
 <pre><code class="language-yaml">name: market_analysis
 description: &quot;Analyze market conditions for a trading symbol&quot;
 version: &quot;1.0.0&quot;
@@ -1187,40 +1182,12 @@ handler:
 skill_linked:    finance
 skill_gain:      1.5
 a2a:             false
-bloat_score:
+bloat_score:                            # computed at registration
   description_tokens: 14
   schema_tokens: 52
   artifact_tokens: 0
   total: 66
 </code></pre>
-<h3>SurrealLife Example <code>[SurrealLife only]</code></h3>
-<pre><code class="language-yaml">name: check_company_balance
-description: &quot;Returns the current A$ balance for a company&quot;
-version: &quot;1.0.2&quot;
-parameters:
-  company_id:
-    type: string
-    required: true
-    description: &quot;SurrealDB record ID, e.g. company:alphastack&quot;
-acl_path:        /tools/check_company_balance
-acl_action:      call
-allowed_roles:   [agent, ceo, referee]    # ceo/referee = SurrealLife roles
-skill_required:  financial_analysis
-skill_min:       0
-handler:
-  type: surreal_query
-  query: &quot;SELECT balance FROM company WHERE id = $company_id&quot;
-  return_field: balance
-skill_linked:    financial_analysis
-skill_gain:      0.1
-a2a:             false
-bloat_score:
-  description_tokens: 18
-  schema_tokens: 94
-  artifact_tokens: 0
-  total: 112
-</code></pre>
-<hr />
 <h2>Key Fields</h2>
 <table>
 <thead>
@@ -1244,7 +1211,7 @@ bloat_score:
 <tr>
 <td><code>version</code></td>
 <td>no</td>
-<td>Semver string (e.g. <code>1.0.2</code>)</td>
+<td>Semver string</td>
 </tr>
 <tr>
 <td><code>parameters</code></td>
@@ -1264,12 +1231,17 @@ bloat_score:
 <tr>
 <td><code>skill_required</code></td>
 <td>no</td>
-<td>Skill name required to use this tool</td>
+<td>Skill dimension that gates this tool</td>
 </tr>
 <tr>
 <td><code>skill_min</code></td>
 <td>no</td>
 <td>Minimum skill score (0 = no minimum)</td>
+</tr>
+<tr>
+<td><code>skill_gain</code></td>
+<td>no</td>
+<td>Suggested gain on successful invocation</td>
 </tr>
 <tr>
 <td><code>handler</code></td>
@@ -1279,12 +1251,12 @@ bloat_score:
 <tr>
 <td><code>a2a</code></td>
 <td>no</td>
-<td>If <code>true</code>, auto-generates an A2A Agent Card for cross-agent exposure</td>
+<td><code>true</code> → auto-generates A2A Agent Card</td>
 </tr>
 <tr>
 <td><code>bloat_score</code></td>
 <td>auto</td>
-<td>Computed at registration time (see <a href="#doc-bloat-score">bloat-score.md</a>)</td>
+<td>Computed at registration (see <a href="#doc-bloat-score">bloat-score.md</a>)</td>
 </tr>
 </tbody>
 </table>
@@ -1294,102 +1266,94 @@ bloat_score:
 <thead>
 <tr>
 <th>Type</th>
-<th>Description</th>
-<th>Execution</th>
-<th>Layer</th>
+<th>What runs</th>
+<th>When to use</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>builtin</code></td>
-<td>Python functions registered at server startup</td>
-<td>Direct, no sandbox</td>
-<td>Protocol</td>
+<td><code>workflow</code></td>
+<td>Multi-phase YAML workflow (llm/rag/script/crew)</td>
+<td>Default — keeps logic versioned</td>
 </tr>
 <tr>
-<td><code>workflow</code></td>
-<td>YAML workflow file — multi-phase (llm/rag/script/crew)</td>
-<td>Workflow engine</td>
-<td>Protocol</td>
+<td><code>builtin</code></td>
+<td>Python function registered at server startup</td>
+<td>Core server tools, no sandbox overhead</td>
 </tr>
 <tr>
 <td><code>surreal_query</code></td>
-<td>Declarative SurrealQL — parameter substitution + DB query</td>
-<td>Template engine</td>
-<td>Protocol</td>
+<td>SurrealQL + parameter substitution</td>
+<td>Simple read-only data queries</td>
 </tr>
 <tr>
 <td><code>notebook</code></td>
 <td><code>.ipynb</code> cells in sandboxed subprocess</td>
-<td>Isolated, no network, read-only DB</td>
-<td>Protocol</td>
+<td>Custom Python, isolated, no network</td>
 </tr>
 <tr>
 <td><code>proof</code></td>
-<td>Proof of Search pipeline — Z3-verified claims</td>
-<td>Streamed, Referee-controlled</td>
-<td>Protocol</td>
+<td>Proof of Search pipeline (Z3-verified)</td>
+<td>Research/claim verification tools</td>
 </tr>
 <tr>
 <td><code>a2a</code></td>
-<td>Delegates to another agent via A2A protocol</td>
+<td>Delegates to another agent via A2A</td>
 <td>Cross-agent RPC</td>
-<td>Protocol</td>
 </tr>
 <tr>
 <td><code>subagent</code></td>
-<td>Spawns a sub-agent for the task</td>
+<td>Spawns a sub-agent</td>
 <td>LangGraph sub-activation</td>
-<td>Protocol</td>
 </tr>
 <tr>
 <td><code>crew</code></td>
-<td>CrewAI multi-agent crew execution</td>
-<td>CrewAI runtime</td>
-<td>Protocol</td>
+<td>CrewAI multi-agent crew</td>
+<td>Multi-agent collaboration</td>
 </tr>
 </tbody>
 </table>
-<h3>Workflow Handler</h3>
+<h3><code>workflow</code> handler</h3>
 <pre><code class="language-yaml">handler:
   type: workflow
-  ref: workflows/market_analysis_flow.yaml   # resolves from tool's namespace
+  ref: workflows/market_analysis_flow.yaml
 </code></pre>
-<p>Recommended for most tools — keeps logic in versioned workflow YAML, not embedded in the registration.</p>
-<h3>SurrealQL Handler</h3>
+<p>Recommended for most tools. Logic lives in a versioned workflow YAML — not embedded in the registration definition.</p>
+<h3><code>surreal_query</code> handler</h3>
 <pre><code class="language-yaml">handler:
   type: surreal_query
-  query: &quot;SELECT balance FROM company WHERE id = $company_id&quot;
-  return_field: balance
+  query: &quot;SELECT * FROM readings WHERE sensor_id = $sensor_id ORDER BY ts DESC LIMIT 1&quot;
+  return_field: readings
 </code></pre>
-<p>No code, no deploy — file drop into <code>/surreal_config/tools/custom/</code>. Suitable for read-only data retrieval tools.</p>
-<h3>Notebook Handler</h3>
-<p>Custom Python logic, sandboxed per invocation. No persistent state, no network, read-only DB. Timeout configurable (default: 5s).</p>
+<p>File-drop into <code>/surreal_config/tools/custom/</code> — no deploy needed. Suitable for read-only retrieval.</p>
+<h3><code>notebook</code> handler</h3>
+<pre><code class="language-yaml">handler:
+  type: notebook
+  ref: notebooks/quant_analysis.ipynb
+  timeout_s: 30
+</code></pre>
+<p>Sandboxed per invocation. No persistent state, no network, read-only DB access.</p>
 <hr />
 <h2>Registration Flow</h2>
 <pre><code class="language-mermaid">graph TD
-    YAML[&quot;Tool YAML submitted\n(file drop, admin API, or agent-authored)&quot;]
+    YAML[&quot;Tool YAML submitted\nfile drop · admin API · agent-authored&quot;]
     SAFE[&quot;Safety Scan\nagent-authored tools only&quot;]
     SANDBOX[&quot;Sandbox execution\nisolated, no network, no DB write&quot;]
     STATIC[&quot;Static analysis\nACL path refs, external API calls&quot;]
-    IA[&quot;IntegrityAgent flag\nsensitive categories [SurrealLife]&quot;]
-    BLOAT[&quot;bloat_score computed\ndescription + schema + artifact tokens → grade A/B/C/D&quot;]
+    BLOAT[&quot;bloat_score computed\ndescription + schema + artifact tokens → grade A–D&quot;]
     QDRANT[&quot;Qdrant indexed\nvector = embed(name + description + tags)&quot;]
-    SDB[&quot;SurrealDB record\ncreated in tool_registry&quot;]
-    INDEX[&quot;index_version bumped\nactive agents re-discover on next activation&quot;]
+    SDB[&quot;SurrealDB record created\ntool_registry&quot;]
+    INDEX[&quot;index_version bumped\nactive agents re-discover on next call&quot;]
 
     YAML --&gt; SAFE
     SAFE --&gt; SANDBOX
     SAFE --&gt; STATIC
-    SAFE --&gt; IA
     SANDBOX --&gt; BLOAT
     STATIC --&gt; BLOAT
-    IA --&gt; BLOAT
     BLOAT --&gt; QDRANT
     QDRANT --&gt; SDB
     SDB --&gt; INDEX
 </code></pre>
-<hr />
 <h2>Who Can Register</h2>
 <table>
 <thead>
@@ -1397,7 +1361,6 @@ bloat_score:
 <th>Source</th>
 <th>Mechanism</th>
 <th>Review</th>
-<th>Layer</th>
 </tr>
 </thead>
 <tbody>
@@ -1405,46 +1368,31 @@ bloat_score:
 <td><strong>Admin</strong></td>
 <td>Drop YAML into <code>/surreal_config/tools/custom/</code></td>
 <td>Auto-registered</td>
-<td>Protocol</td>
 </tr>
 <tr>
 <td><strong>Agent (authorized)</strong></td>
 <td>Write YAML → safety scan → <code>register_tool</code> API</td>
 <td>Admin review optional</td>
-<td>Protocol</td>
 </tr>
 <tr>
 <td><strong>Platform</strong></td>
-<td>Built-in tools registered at server startup</td>
+<td>Built-in tools at server startup</td>
 <td>None</td>
-<td>Protocol</td>
-</tr>
-<tr>
-<td><strong>Game master</strong> <code>[SurrealLife only]</code></td>
-<td>Drop YAML as in-game event</td>
-<td>Auto-registered</td>
-<td>Game</td>
-</tr>
-<tr>
-<td><strong>In-game company</strong> <code>[SurrealLife only]</code></td>
-<td>Agent reaches <code>publish_threshold</code> skill score</td>
-<td>IntegrityAgent review</td>
-<td>Game</td>
 </tr>
 </tbody>
 </table>
 <hr />
 <h2>Tool Versioning</h2>
-<p>Use semver in the <code>version</code> field. When a tool is updated:
-- New version registered alongside the old
-- <code>deprecated: true</code> flag on the old version
-- <code>index_version</code> bumps → agents re-discover and see the updated tool
-- Old versions remain callable until explicitly removed</p>
+<p>Use semver in the <code>version</code> field. On update:
+- New version registered alongside old
+- <code>deprecated: true</code> on old version
+- <code>index_version</code> bumps → agents re-discover automatically
+- Old versions callable until explicitly removed</p>
 <hr />
 <h2>A2A Exposure</h2>
-<p>Setting <code>a2a: true</code> auto-generates an A2A Agent Card, making the tool discoverable by agents on other DAPNet nodes. The card includes the tool's name, description, parameters, and ACL requirements.</p>
+<p><code>a2a: true</code> auto-generates an A2A Agent Card — makes the tool discoverable by agents on other DAPNet nodes (name, description, parameters, ACL requirements included).</p>
 <hr />
-<h2>SurrealDB Event-Driven Rediscovery</h2>
+<h2>Event-Driven Rediscovery</h2>
 <pre><code class="language-surql">DEFINE EVENT tool_change ON TABLE tool_registry
   WHEN $event = &quot;CREATE&quot; OR $event = &quot;UPDATE&quot;
   THEN {
@@ -1452,7 +1400,71 @@ bloat_score:
     http::post(&quot;http://dap-grpc:50051/notify&quot;, { event: &quot;tool_change&quot; });
   };
 </code></pre>
-<p>When a tool is created or modified, the event triggers <code>index_version</code> update and agent rediscovery — no restart, no manual intervention.</p>
+<p>No restart, no manual intervention — agents see updated tools on their next <code>DiscoverTools</code> call.</p>
+<hr />
+<h2>SurrealLife Extensions <code>[SurrealLife only]</code></h2>
+<p>The following registration mechanics only apply inside the SurrealLife simulation. They do not exist in protocol-only deployments.</p>
+<h3>In-Game Registration Sources</h3>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Mechanism</th>
+<th>Review</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Game master</strong></td>
+<td>Drop YAML as in-game world event</td>
+<td>Auto-registered</td>
+</tr>
+<tr>
+<td><strong>In-game company</strong></td>
+<td>Agent reaches <code>publish_threshold</code> skill score</td>
+<td>IntegrityAgent review</td>
+</tr>
+</tbody>
+</table>
+<h3>SurrealLife-Specific Roles in <code>allowed_roles</code></h3>
+<pre><code class="language-yaml">allowed_roles: [agent, ceo, referee]   # ceo and referee = SurrealLife-only roles
+</code></pre>
+<p><code>ceo</code>, <code>referee</code>, <code>ciso</code>, <code>faction:Underground</code> are game roles — not present in standard DAP ACL.</p>
+<h3>IntegrityAgent Review</h3>
+<p>In SurrealLife, agent-authored tools go through IntegrityAgent — an in-sim monitoring agent that flags suspicious tool definitions (social engineering prompts, skill score manipulation, contraband patterns). Outside SurrealLife, the safety scan is a static analysis step only.</p>
+<h3>AgentBay vs tool_registry</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>tool_registry</code> (Protocol)</th>
+<th>AgentBay (SurrealLife)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Operator</td>
+<td>Server admin / DAPCom</td>
+<td>Game master + companies</td>
+</tr>
+<tr>
+<td>Content</td>
+<td>Verified tool schemas</td>
+<td>Game tools, corporate tools, contraband</td>
+</tr>
+<tr>
+<td>Contraband</td>
+<td>Not applicable</td>
+<td>Allowed — part of game design</td>
+</tr>
+<tr>
+<td>Write access</td>
+<td>Admin + authorized agents</td>
+<td>Game master + agents at skill threshold</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="#doc-agentbay">agentbay.md</a> for AgentBay details.</p>
 <hr />
 <blockquote>
 <p><strong>References</strong>

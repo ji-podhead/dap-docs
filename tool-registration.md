@@ -1,16 +1,10 @@
 # DAP Tool Registration — Reference
 
-> **Protocol vs Game:** Tool registration, handler types, bloat scoring, and Qdrant indexing are **DAP protocol features** — they work in any deployment. Game masters, IntegrityAgent review, and SurrealLife-specific roles (`ceo`, `ciso`) are **SurrealLife game-layer features**. See [dap-games.md](dap-games.md) for the full split.
-
 Tools in DAP are registered into a Qdrant vector index backed by SurrealDB records. Registration is the entry point for any tool — built-in or custom — to become discoverable and invocable.
 
 ---
 
 ## YAML Tool Definition
-
-Every tool is defined as a YAML file with a standard structure:
-
-### Protocol Example (any DAP deployment)
 
 ```yaml
 name: market_analysis
@@ -36,44 +30,12 @@ handler:
 skill_linked:    finance
 skill_gain:      1.5
 a2a:             false
-bloat_score:
+bloat_score:                            # computed at registration
   description_tokens: 14
   schema_tokens: 52
   artifact_tokens: 0
   total: 66
 ```
-
-### SurrealLife Example `[SurrealLife only]`
-
-```yaml
-name: check_company_balance
-description: "Returns the current A$ balance for a company"
-version: "1.0.2"
-parameters:
-  company_id:
-    type: string
-    required: true
-    description: "SurrealDB record ID, e.g. company:alphastack"
-acl_path:        /tools/check_company_balance
-acl_action:      call
-allowed_roles:   [agent, ceo, referee]    # ceo/referee = SurrealLife roles
-skill_required:  financial_analysis
-skill_min:       0
-handler:
-  type: surreal_query
-  query: "SELECT balance FROM company WHERE id = $company_id"
-  return_field: balance
-skill_linked:    financial_analysis
-skill_gain:      0.1
-a2a:             false
-bloat_score:
-  description_tokens: 18
-  schema_tokens: 94
-  artifact_tokens: 0
-  total: 112
-```
-
----
 
 ## Key Fields
 
@@ -81,55 +43,63 @@ bloat_score:
 |---|---|---|
 | `name` | yes | Unique tool identifier |
 | `description` | yes | One sentence — what the tool does |
-| `version` | no | Semver string (e.g. `1.0.2`) |
+| `version` | no | Semver string |
 | `parameters` | yes | JSON Schema-compatible parameter definitions |
 | `acl_path` | yes | Casbin path for access control |
 | `allowed_roles` | yes | Roles that can call this tool |
-| `skill_required` | no | Skill name required to use this tool |
+| `skill_required` | no | Skill dimension that gates this tool |
 | `skill_min` | no | Minimum skill score (0 = no minimum) |
+| `skill_gain` | no | Suggested gain on successful invocation |
 | `handler` | yes | Handler configuration (see below) |
-| `a2a` | no | If `true`, auto-generates an A2A Agent Card for cross-agent exposure |
-| `bloat_score` | auto | Computed at registration time (see [bloat-score.md](bloat-score.md)) |
+| `a2a` | no | `true` → auto-generates A2A Agent Card |
+| `bloat_score` | auto | Computed at registration (see [bloat-score.md](bloat-score.md)) |
 
 ---
 
 ## Handler Types
 
-| Type | Description | Execution | Layer |
-|---|---|---|---|
-| `builtin` | Python functions registered at server startup | Direct, no sandbox | Protocol |
-| `workflow` | YAML workflow file — multi-phase (llm/rag/script/crew) | Workflow engine | Protocol |
-| `surreal_query` | Declarative SurrealQL — parameter substitution + DB query | Template engine | Protocol |
-| `notebook` | `.ipynb` cells in sandboxed subprocess | Isolated, no network, read-only DB | Protocol |
-| `proof` | Proof of Search pipeline — Z3-verified claims | Streamed, Referee-controlled | Protocol |
-| `a2a` | Delegates to another agent via A2A protocol | Cross-agent RPC | Protocol |
-| `subagent` | Spawns a sub-agent for the task | LangGraph sub-activation | Protocol |
-| `crew` | CrewAI multi-agent crew execution | CrewAI runtime | Protocol |
+| Type | What runs | When to use |
+|---|---|---|
+| `workflow` | Multi-phase YAML workflow (llm/rag/script/crew) | Default — keeps logic versioned |
+| `builtin` | Python function registered at server startup | Core server tools, no sandbox overhead |
+| `surreal_query` | SurrealQL + parameter substitution | Simple read-only data queries |
+| `notebook` | `.ipynb` cells in sandboxed subprocess | Custom Python, isolated, no network |
+| `proof` | Proof of Search pipeline (Z3-verified) | Research/claim verification tools |
+| `a2a` | Delegates to another agent via A2A | Cross-agent RPC |
+| `subagent` | Spawns a sub-agent | LangGraph sub-activation |
+| `crew` | CrewAI multi-agent crew | Multi-agent collaboration |
 
-### Workflow Handler
+### `workflow` handler
 
 ```yaml
 handler:
   type: workflow
-  ref: workflows/market_analysis_flow.yaml   # resolves from tool's namespace
+  ref: workflows/market_analysis_flow.yaml
 ```
 
-Recommended for most tools — keeps logic in versioned workflow YAML, not embedded in the registration.
+Recommended for most tools. Logic lives in a versioned workflow YAML — not embedded in the registration definition.
 
-### SurrealQL Handler
+### `surreal_query` handler
 
 ```yaml
 handler:
   type: surreal_query
-  query: "SELECT balance FROM company WHERE id = $company_id"
-  return_field: balance
+  query: "SELECT * FROM readings WHERE sensor_id = $sensor_id ORDER BY ts DESC LIMIT 1"
+  return_field: readings
 ```
 
-No code, no deploy — file drop into `/surreal_config/tools/custom/`. Suitable for read-only data retrieval tools.
+File-drop into `/surreal_config/tools/custom/` — no deploy needed. Suitable for read-only retrieval.
 
-### Notebook Handler
+### `notebook` handler
 
-Custom Python logic, sandboxed per invocation. No persistent state, no network, read-only DB. Timeout configurable (default: 5s).
+```yaml
+handler:
+  type: notebook
+  ref: notebooks/quant_analysis.ipynb
+  timeout_s: 30
+```
+
+Sandboxed per invocation. No persistent state, no network, read-only DB access.
 
 ---
 
@@ -137,59 +107,52 @@ Custom Python logic, sandboxed per invocation. No persistent state, no network, 
 
 ```mermaid
 graph TD
-    YAML["Tool YAML submitted\n(file drop, admin API, or agent-authored)"]
+    YAML["Tool YAML submitted\nfile drop · admin API · agent-authored"]
     SAFE["Safety Scan\nagent-authored tools only"]
     SANDBOX["Sandbox execution\nisolated, no network, no DB write"]
     STATIC["Static analysis\nACL path refs, external API calls"]
-    IA["IntegrityAgent flag\nsensitive categories [SurrealLife]"]
-    BLOAT["bloat_score computed\ndescription + schema + artifact tokens → grade A/B/C/D"]
+    BLOAT["bloat_score computed\ndescription + schema + artifact tokens → grade A–D"]
     QDRANT["Qdrant indexed\nvector = embed(name + description + tags)"]
-    SDB["SurrealDB record\ncreated in tool_registry"]
-    INDEX["index_version bumped\nactive agents re-discover on next activation"]
+    SDB["SurrealDB record created\ntool_registry"]
+    INDEX["index_version bumped\nactive agents re-discover on next call"]
 
     YAML --> SAFE
     SAFE --> SANDBOX
     SAFE --> STATIC
-    SAFE --> IA
     SANDBOX --> BLOAT
     STATIC --> BLOAT
-    IA --> BLOAT
     BLOAT --> QDRANT
     QDRANT --> SDB
     SDB --> INDEX
 ```
 
----
-
 ## Who Can Register
 
-| Source | Mechanism | Review | Layer |
-|---|---|---|---|
-| **Admin** | Drop YAML into `/surreal_config/tools/custom/` | Auto-registered | Protocol |
-| **Agent (authorized)** | Write YAML → safety scan → `register_tool` API | Admin review optional | Protocol |
-| **Platform** | Built-in tools registered at server startup | None | Protocol |
-| **Game master** `[SurrealLife only]` | Drop YAML as in-game event | Auto-registered | Game |
-| **In-game company** `[SurrealLife only]` | Agent reaches `publish_threshold` skill score | IntegrityAgent review | Game |
+| Source | Mechanism | Review |
+|---|---|---|
+| **Admin** | Drop YAML into `/surreal_config/tools/custom/` | Auto-registered |
+| **Agent (authorized)** | Write YAML → safety scan → `register_tool` API | Admin review optional |
+| **Platform** | Built-in tools at server startup | None |
 
 ---
 
 ## Tool Versioning
 
-Use semver in the `version` field. When a tool is updated:
-- New version registered alongside the old
-- `deprecated: true` flag on the old version
-- `index_version` bumps → agents re-discover and see the updated tool
-- Old versions remain callable until explicitly removed
+Use semver in the `version` field. On update:
+- New version registered alongside old
+- `deprecated: true` on old version
+- `index_version` bumps → agents re-discover automatically
+- Old versions callable until explicitly removed
 
 ---
 
 ## A2A Exposure
 
-Setting `a2a: true` auto-generates an A2A Agent Card, making the tool discoverable by agents on other DAPNet nodes. The card includes the tool's name, description, parameters, and ACL requirements.
+`a2a: true` auto-generates an A2A Agent Card — makes the tool discoverable by agents on other DAPNet nodes (name, description, parameters, ACL requirements included).
 
 ---
 
-## SurrealDB Event-Driven Rediscovery
+## Event-Driven Rediscovery
 
 ```surql
 DEFINE EVENT tool_change ON TABLE tool_registry
@@ -200,7 +163,43 @@ DEFINE EVENT tool_change ON TABLE tool_registry
   };
 ```
 
-When a tool is created or modified, the event triggers `index_version` update and agent rediscovery — no restart, no manual intervention.
+No restart, no manual intervention — agents see updated tools on their next `DiscoverTools` call.
+
+---
+
+## SurrealLife Extensions `[SurrealLife only]`
+
+The following registration mechanics only apply inside the SurrealLife simulation. They do not exist in protocol-only deployments.
+
+### In-Game Registration Sources
+
+| Source | Mechanism | Review |
+|---|---|---|
+| **Game master** | Drop YAML as in-game world event | Auto-registered |
+| **In-game company** | Agent reaches `publish_threshold` skill score | IntegrityAgent review |
+
+### SurrealLife-Specific Roles in `allowed_roles`
+
+```yaml
+allowed_roles: [agent, ceo, referee]   # ceo and referee = SurrealLife-only roles
+```
+
+`ceo`, `referee`, `ciso`, `faction:Underground` are game roles — not present in standard DAP ACL.
+
+### IntegrityAgent Review
+
+In SurrealLife, agent-authored tools go through IntegrityAgent — an in-sim monitoring agent that flags suspicious tool definitions (social engineering prompts, skill score manipulation, contraband patterns). Outside SurrealLife, the safety scan is a static analysis step only.
+
+### AgentBay vs tool_registry
+
+| | `tool_registry` (Protocol) | AgentBay (SurrealLife) |
+|---|---|---|
+| Operator | Server admin / DAPCom | Game master + companies |
+| Content | Verified tool schemas | Game tools, corporate tools, contraband |
+| Contraband | Not applicable | Allowed — part of game design |
+| Write access | Admin + authorized agents | Game master + agents at skill threshold |
+
+See [agentbay.md](agentbay.md) for AgentBay details.
 
 ---
 
