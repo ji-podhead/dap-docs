@@ -464,7 +464,7 @@ SurrealLife and DAP IDE are applications built on top.</p>
     Network -.-&gt;|&quot;infrastructure for&quot;| Integrations
 </code></pre>
 <p><strong>Protocol vs Game — the key distinction:</strong>
-Everything in the Protocol layer works in any deployment — your trading bot, your CI pipeline, DAP IDE. Game mechanics (careers, SurrealCoin, AgentBay contraband, state contracts, <code>simengine</code> phase) are SurrealLife-only. See <a href="#doc-dap-games">dap-games.md</a> for the full split.</p>
+Everything in the Protocol layer works in any deployment — a fintech application, a CI pipeline, DAP IDE. Game mechanics (careers, SurrealCoin, AgentBay contraband, state contracts, <code>simengine</code> phase) are SurrealLife-only. See <a href="#doc-dap-games">dap-games.md</a> for the full split.</p>
 <hr />
 <h2>Core Protocol</h2>
 <table>
@@ -6897,7 +6897,7 @@ dap-bench run --server grpc://localhost:50051 --output results.json
 <h1>DAP Logs — Reference</h1>
 <p>DAP Logs are structured audit records generated automatically on every protocol operation — <code>InvokeTool</code>, <code>DiscoverTools</code>, skill gain events, task state transitions, PoD issuance. Every log entry is a first-class SurrealDB record, streamed via MQTT and queryable via LIVE SELECT.</p>
 <blockquote>
-<p>LeoBot writes <code>audit_logs</code> to DuckDB via Redis EventBridge. DAP Logs do the same thing natively — SurrealDB as the log store, MQTT as the stream, LIVE SELECT as the live view. No EventBridge needed: the protocol emits logs itself.</p>
+<p>A typical fintech application writes audit logs to a database via an event bridge. DAP Logs do the same thing natively — SurrealDB as the log store, MQTT as the stream, LIVE SELECT as the live view. No event bridge needed: the protocol emits logs itself.</p>
 </blockquote>
 <hr />
 <h2>Log Architecture</h2>
@@ -7041,40 +7041,40 @@ DEFINE FIELD created_at  ON tool_call_log TYPE datetime  DEFAULT time::now();
 }
 </code></pre>
 <hr />
-<h2>Efficiency vs LeoBot</h2>
-<p>LeoBot uses DuckDB + Redis EventBridge for audit logs. DAP Logs use SurrealDB natively — no bridge needed:</p>
+<h2>Efficiency vs Typical Fintech Application</h2>
+<p>A fintech application (e.g. a trading bot) typically routes audit events through an event bridge before persisting them. DAP Logs use SurrealDB natively — no bridge needed:</p>
 <table>
 <thead>
 <tr>
 <th></th>
-<th>LeoBot audit_logs</th>
+<th>Fintech app (typical)</th>
 <th>DAP Logs</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>Store</strong></td>
-<td>DuckDB (<code>audit_logs</code> table)</td>
+<td>DuckDB / Postgres (separate audit table)</td>
 <td>SurrealDB (<code>tool_call_log</code>)</td>
 </tr>
 <tr>
 <td><strong>Stream</strong></td>
-<td>Redis <code>leobot:grodt:events</code> → EventBridge</td>
+<td>Redis pub/sub → event bridge → DB write</td>
 <td>MQTT <code>dap/logs/{team}/stream</code> direct</td>
 </tr>
 <tr>
 <td><strong>Live view</strong></td>
-<td>WebSocket → <code>logStore.js</code> → History Page</td>
+<td>WebSocket → custom store → UI</td>
 <td>LIVE SELECT → any subscriber</td>
 </tr>
 <tr>
 <td><strong>Write path</strong></td>
-<td><code>_emit()</code> → Redis → EventBridge → <code>record_audit()</code></td>
+<td><code>emit()</code> → queue → bridge → <code>record_audit()</code></td>
 <td>DAP audit layer → direct INSERT</td>
 </tr>
 <tr>
 <td><strong>Query</strong></td>
-<td>DuckDB SQL (offline)</td>
+<td>SQL (offline only)</td>
 <td>SurrealDB live + batch</td>
 </tr>
 <tr>
@@ -7099,7 +7099,7 @@ DEFINE FIELD created_at  ON tool_call_log TYPE datetime  DEFAULT time::now();
 </tr>
 </tbody>
 </table>
-<p>The key efficiency gain: <strong>no EventBridge</strong>. The DAP audit layer writes directly into SurrealDB on every protocol operation — zero extra hops.</p>
+<p>The key efficiency gain: <strong>no event bridge</strong>. The DAP audit layer writes directly into SurrealDB on every protocol operation — zero extra hops.</p>
 <hr />
 <h2>LIVE SELECT — Real-Time Log Dashboard</h2>
 <pre><code class="language-python"># Team lead sees all logs for their team live
