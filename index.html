@@ -2151,6 +2151,43 @@ SELECT id FROM agent WHERE id = $target
   emit_score: true         # score attached to result artifact
 </code></pre>
 <p>Pass → artifact gets <code>proofed: true</code>, 1.5× skill gain, Hub badge, audit-grade.</p>
+<h2>Tool Availability in Workflow Phases</h2>
+<p>Tool availability in workflow phases works exactly like skills — through <code>DiscoverTools</code>. The agent's skill scores gate which tools are visible, same as any other invocation. No separate filter needed.</p>
+<pre><code class="language-yaml"># Default (tools: inherit) — same tool context as parent InvokeTool call
+- id: analyze
+  type: llm
+  # tools omitted = inherit
+
+# Explicit re-discover for this phase — DiscoverTools runs with agent's current skill context
+- id: analyze
+  type: llm
+  tools: discover
+
+# Explicit whitelist — still subject to skill gate checks, can't bypass them
+- id: analyze
+  type: llm
+  tools:
+    - get_price_data
+    - calculate_rsi
+</code></pre>
+<p>Skill gates always apply — an agent with <code>finance: 30</code> cannot call a tool with <code>skill_min: 60</code> even if it is explicitly listed in the workflow.</p>
+<pre><code class="language-mermaid">graph LR
+    IT[&quot;InvokeTool\nmarket_analysis\nagent: finance=71&quot;]
+    DT[&quot;DiscoverTools\nskill gates apply\nfinance&gt;=40 → 12 tools&quot;]
+    LLM[&quot;type: llm\ntools as function-calling schema\nLLM picks, server executes&quot;]
+    SC[&quot;type: script\ntools as Python callables\nin sandbox&quot;]
+    CR[&quot;type: crew\neach member runs DiscoverTools\nwith their own skill scores&quot;]
+
+    IT --&gt; DT --&gt; LLM
+    IT --&gt; SC
+    IT --&gt; CR
+</code></pre>
+<p><code>type: script</code> sandbox example:</p>
+<pre><code class="language-python"># Tools injected as callables — DAP server wraps each handler
+result  = tools.get_price_data(symbol=&quot;BTC&quot;, timeframe=&quot;1h&quot;)
+signals = tools.calculate_rsi(prices=result[&quot;prices&quot;], period=14)
+</code></pre>
+<hr />
 <h2>Artifact Binding</h2>
 <p>Tools can pull skill artifacts into their execution context:</p>
 <pre><code class="language-yaml">artifact_binding:
