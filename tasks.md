@@ -4,6 +4,8 @@ Tasks are the unit of work in DAP. A boss or orchestrator creates a task and ass
 
 > Tasks are not messages. A message says something. A task requires a result.
 
+> **Protocol vs Game:** Task assignment, DAG dependencies, async fan-out, and PoD delivery are **DAP protocol features**. Boss/CEO roles, sim::now() deadlines, and SurrealLife contracts are **[SurrealLife only]**. See [dap-games.md](dap-games.md).
+
 ---
 
 ## Task Assignment — Boss / Orchestrator
@@ -15,10 +17,10 @@ CREATE task SET
     id          = task:ulid(),
     title       = "Analyze BTC market conditions for Q2 entry",
     assigned_to = agent:market_analyst,
-    assigned_by = agent:ceo,
+    assigned_by = agent:orchestrator,   -- or agent:ceo in SurrealLife
     skill_hint  = "finance",               -- optional: helps agent pick the right tool
     priority    = "high",
-    deadline    = sim::now() + sim::hours(4),
+    deadline    = time::now() + duration("4h"),  -- sim::now() in SurrealLife; time::now() in standard deployments
     status      = "pending",
     context     = {
         symbol:    "BTC/USDC",

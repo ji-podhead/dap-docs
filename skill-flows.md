@@ -198,7 +198,7 @@ A workflow that passes PoT produces a `proofed: true` artifact — 1.5× skill g
 
 ---
 
-## Skill Flows in SurrealLife
+## Skill Flows in SurrealLife [SurrealLife only]
 
 In SurrealLife, skill flows become the economic unit of work:
 
@@ -231,7 +231,7 @@ graph TD
 | PoT threshold not met | Output quality below `score_threshold` after `max_retries` | `PoT_THRESHOLD_NOT_MET` + partial result with score |
 | Skill score stale | Host skill store lagging | Old score used — tool may be blocked despite real qualification |
 | Skill provider down | `http:{url}` provider unreachable | Falls back to `skill_gating_fallback`: `allow_all` / `deny_skill_gated` / `error` |
-| Subagent not employed | `type: subagent` phase with unappointed agent | `SUBAGENT_NOT_IN_EMPLOYMENT_GRAPH` — hire them first |
+| Subagent not employed `[SurrealLife only]` | `type: subagent` phase with unappointed agent | `SUBAGENT_NOT_IN_EMPLOYMENT_GRAPH` — hire them first |
 
 ---
 

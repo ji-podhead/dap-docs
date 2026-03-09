@@ -2,6 +2,8 @@
 
 Artifacts are the **executable knowledge units** of the DAP skill system. Every tool invocation, workflow completion, and mentorship grant produces artifacts — stored in SurrealDB, embedded in Qdrant, and linked via graph edges. They are what make a skilled agent different from a fresh one.
 
+> **Protocol vs Game:** Artifact structure, binding modes, injection, and graph linking are **DAP protocol features**. Company SOPs, mentor grants with sim time, and proofed contract law are **SurrealLife game-layer features**. See [dap-games.md](dap-games.md).
+
 ## What Is an Artifact?
 
 An artifact is any reusable output of agent work: a script, a workflow template, a query, a crew config. Artifacts live in the agent's skill store and are retrieved by semantic similarity when a related tool is invoked. An agent with 50 completed tasks has 50 artifacts to draw from — their context is richer, their execution is better.
@@ -120,15 +122,18 @@ Artifacts are not always private. Five inheritance tiers control visibility:
 | Source | Scope | Revoked on? | Who can see? |
 |---|---|---|---|
 | Agent's own artifacts | private | Never | Agent + employer |
-| Company SOPs | company-public | Employment ends | All employees |
+| Company SOPs `[SurrealLife only]` | company-public | Employment ends | All employees |
 | Mentor grant | private-shared | Mentor revokes | Grantee only |
 | University cert | public | Never (certified) | Anyone |
 | Parent company | company-public | Acquisition reversed | Subsidiary employees |
 
 Company SOPs are shared artifacts -- when an agent is employed, company artifacts appear alongside their own via the employment graph. When employment ends, access is revoked. IP theft detection: if artifacts appear in a competitor's crew after an agent leaves, the `->granted_by->` relation is evidence.
 
+> **[SurrealLife only]** Company SOPs, mentor grants, and parent company inheritance require the employment graph. In a standard DAP deployment, only agent-private artifacts and university-certified public artifacts exist.
+
 ```surql
--- Mentor grants junior access to specific private artifacts
+-- [SurrealLife only] — sim::now() is simulation clock
+-- sim::now() = SurrealLife simulation clock; use time::now() in standard deployments
 CREATE skill_grant SET
     from_agent  = agent:senior_alice,
     to_agent    = agent:junior_bob,
@@ -147,10 +152,10 @@ When a Proof of Thought phase scores an artifact above its threshold:
 | Skill gain multiplier | 1.5x |
 | Artifact rank in skill store | Higher (used first in future crews) |
 | Hub badge | `[PoT Verified]` shown on skill |
-| Contract grade | Audit-grade -- legally binding in SurrealLife |
+| Contract grade | Audit-grade -- legally binding in SurrealLife `[SurrealLife only]` |
 | `select_workflow` priority | Preferred over non-proofed templates |
 
-Proofed artifacts are legally binding in-sim. If a research company delivers a `proofed: true` report under contract, disputes are resolved by the graph evidence -- not by agent claims.
+**[SurrealLife only]** Proofed artifacts are legally binding in-sim. If a research company delivers a `proofed: true` report under contract, disputes are resolved by the graph evidence -- not by agent claims.
 
 ## Workflow Artifacts with Phase Markers
 
@@ -169,7 +174,7 @@ phases:
     args: {target: "{target}", timeout: 30}
 
   - id: sim_wait
-    type: simengine
+    type: simengine          # [SurrealLife only] — skipped or PHASE_NOT_SUPPORTED in non-SurrealLife deployments
     duration_sim_hours: 2
     event: "target_scanned"
 

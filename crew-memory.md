@@ -1,6 +1,6 @@
 # DAP Crew Memory — Reference
 
-In SurrealLife, every CrewAI crew member is a real SurrealDB agent record. Their accumulated memories and skill artifacts are injected at crew initialization. After the crew runs, new memories are written back to all members.
+In DAP, every CrewAI crew member can be backed by a real SurrealDB agent record — loading their accumulated memories and skill artifacts at initialization. In SurrealLife, this is mandatory (agents are persistent identities). In standalone deployments, it is optional but recommended for persistent agent teams.
 
 ## The Difference from Generic CrewAI
 
@@ -45,7 +45,7 @@ async def run_crew_phase(phase_config, task, db):
         # 4. Build dynamic backstory (Jinja template)
         backstory = render_jinja("backstory.md.j2", {
             "agent": agent, "memories": memories, "artifacts": artifacts,
-            "inherited_artifacts": get_company_sops(agent, task_vec, db)
+            "inherited_artifacts": get_company_sops(agent, task_vec, db)  # get_company_sops() = [SurrealLife only] — returns empty list in non-SurrealLife deployments
         })
 
         # 5. CrewAI Agent with SurrealDB memory backend
@@ -132,7 +132,9 @@ Agent assigned to crew
 
 An agent with 50 crew experiences executes measurably better than one with 0. Not because their LLM is different — because their **context is richer**.
 
-## Company SOPs in Crews
+## Company SOPs in Crews [SurrealLife only]
+
+Company SOPs require the SurrealLife employment graph (`->works_for->` relation). In a standard DAP deployment without company structures, this section does not apply — agents only have their own private artifacts.
 
 Inherited company artifacts appear in the backstory alongside private artifacts. When an agent leaves a company, the SOPs vanish from their next crew context automatically (employment graph relation removed).
 

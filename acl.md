@@ -9,6 +9,8 @@ Casbin with `keyMatch2` path wildcards enforces access at the protocol level. Th
 ### Tool ACL Examples
 
 ```
+# Note: role:ceo, role:referee, role:hacker_tierN, and game_master are SurrealLife roles.
+# In standard DAP deployments, define your own roles (e.g. role:admin, role:analyst, role:agent).
 p, role:agent,        /tools/send_message,           call
 p, role:agent,        /tools/http_request,           call
 p, role:ceo,          /tools/fire_agent,             call
@@ -23,6 +25,8 @@ p, game_master,       /tools/*,                      call
 ### MQTT Topic ACL (Same Store)
 
 ```
+# Note: role:ceo and game_master below are SurrealLife roles.
+# In standard DAP deployments, replace with your own roles (e.g. role:admin, role:orchestrator).
 p, role:agent,    dap/agents/+/inbox,       subscribe
 p, role:agent,    dap/agents/$self/outbox,  publish
 p, role:ceo,      dap/company/+/broadcast,  subscribe
