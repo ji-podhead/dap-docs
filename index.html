@@ -374,6 +374,7 @@
 <li><a href="#doc-dashboard">DAP Dashboard</a></li>
 <li><a href="#doc-observability">Observability</a></li>
 <li><a href="#doc-utilities">Utilities</a></li>
+<li><a href="#doc-graphrag">GraphRAG</a></li>
 <li><a href="#doc-migrate">Migration Guide</a></li>
 <li><a href="#doc-teams">DAP Teams</a></li>
 <li class="sidebar-section">Integrations</li>
@@ -395,6 +396,8 @@
 <h1>DAP — Dynamic Agent Protocol</h1>
 <h3>Reference Documentation</h3>
 <blockquote>
+<p><strong>These docs are a PRD — a design specification, not an implementation status report.</strong>
+Features described here are planned or in-progress. Nothing in this reference implies production readiness unless explicitly noted.</p>
 <p>DAP is the open protocol for tool discovery and invocation in multi-agent systems.
 DAP is the protocol. DAPNet is the network. DAPCom runs the network.
 SurrealLife and DAP IDE are applications built on top.</p>
@@ -8154,6 +8157,278 @@ def trim_to_budget(chunks: list[str], budget: int) -&gt; list[str]:
 </code></pre>
 <hr />
 <p><em>See also: <a href="#doc-rag">rag.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-observability">observability.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-graphrag" class="doc-section">
+<h1>DAP GraphRAG — Reference</h1>
+<blockquote>
+<p><strong>Status: Planned / Future.</strong> This is a PRD-level design. GraphRAG is not yet implemented in DAP. It is a planned extension of the <code>type: rag</code> workflow phase.</p>
+</blockquote>
+<p>DAP GraphRAG extends the <code>type: rag</code> phase with ontology-driven graph traversal. Instead of pure vector similarity, it combines HNSW retrieval with graph walks — and the ontology grows automatically from skill gain events, tool invocations, and artifact accumulation. No manual taxonomy maintenance required.</p>
+<blockquote>
+<p>Plain RAG finds what is similar. GraphRAG finds what is similar <strong>and</strong> what is related — parent concepts, sibling concepts, proven approaches in adjacent domains.</p>
+</blockquote>
+<h2>Relation to SurrealLife Agent Graph</h2>
+<p>In SurrealLife, agents are already connected via a social graph (<code>-&gt;knows-&gt;</code>, <code>-&gt;works_for-&gt;</code>, <code>-&gt;employs-&gt;</code>). The <code>SurrealMemoryBackend</code> (see <a href="#doc-crew-memory">crew-memory.md</a>) already does HNSW search over an agent's own memories. GraphRAG extends this in two ways:</p>
+<ol>
+<li><strong>Cross-agent knowledge</strong> — traverse the <code>knows</code> graph to find artifacts from agents you've worked with</li>
+<li><strong>Concept taxonomy</strong> — instead of searching raw memories, search a structured ontology that grows from every skill gain event</li>
+</ol>
+<p>In a standard DAP deployment (no SurrealLife), the agent social graph does not exist — the ontology replaces it as the connection layer between knowledge pieces.</p>
+<hr />
+<h2>How It Fits Into Skills</h2>
+<p>The skill system already records everything GraphRAG needs:</p>
+<table>
+<thead>
+<tr>
+<th>Skill System</th>
+<th>GraphRAG Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Skill dimensions (<code>finance</code>, <code>research</code>, …)</td>
+<td>Ontology root nodes</td>
+</tr>
+<tr>
+<td>Skill artifacts</td>
+<td>Concept-linked knowledge nodes</td>
+</tr>
+<tr>
+<td><code>SkillGainEvent</code></td>
+<td>Edge creation: <code>agent →gained_from→ concept</code></td>
+</tr>
+<tr>
+<td>Tool invocations in <code>tool_call_log</code></td>
+<td>Automatic concept extraction → taxonomy extension</td>
+</tr>
+<tr>
+<td>PoT score on artifact</td>
+<td>Node quality weight in graph traversal</td>
+</tr>
+</tbody>
+</table>
+<p>The ontology is not a separate system — it is the skill graph, made queryable.</p>
+<hr />
+<h2>Ontology Schema (SurrealDB)</h2>
+<pre><code class="language-surql">-- Concept nodes (ontology terms)
+DEFINE TABLE concept SCHEMAFULL;
+DEFINE FIELD label     ON concept TYPE string;
+DEFINE FIELD dimension ON concept TYPE string;   -- skill dimension root
+DEFINE FIELD embedding ON concept TYPE array&lt;float&gt;;
+DEFINE FIELD auto_generated ON concept TYPE bool DEFAULT false;
+
+DEFINE INDEX concept_vec ON concept
+  FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
+
+-- Taxonomy edges
+DEFINE TABLE broader  TYPE RELATION IN concept OUT concept;  -- narrower → broader
+DEFINE TABLE related  TYPE RELATION IN concept OUT concept;  -- peer concepts
+DEFINE TABLE covers   TYPE RELATION IN skill_artifact OUT concept;  -- artifact covers concept
+DEFINE TABLE derives  TYPE RELATION IN concept OUT concept;  -- concept derived from another
+</code></pre>
+<p><strong>Seed concepts</strong> are created from skill dimension names at deployment time. Every new skill dimension automatically becomes an ontology root.</p>
+<hr />
+<h2>Adaptive Taxonomy Extension</h2>
+<p>New concepts are extracted automatically — no manual curation needed:</p>
+<pre><code class="language-python">async def extend_taxonomy(tool_name: str, tool_description: str, db):
+    &quot;&quot;&quot;Called after every SkillGainEvent. Extracts concepts from tool description
+    and links them to the ontology if not already present.&quot;&quot;&quot;
+
+    # Extract candidate concepts via lightweight LLM call
+    candidates = await extract_concepts(tool_description)  # returns [{label, dimension}]
+
+    for candidate in candidates:
+        # Check if concept already exists (vector similarity &gt; 0.92 = same concept)
+        existing = await db.query(&quot;&quot;&quot;
+            SELECT id, label,
+                   vector::similarity::cosine(embedding, $vec) AS sim
+            FROM concept
+            WHERE vector::similarity::cosine(embedding, $vec) &gt; 0.92
+            LIMIT 1
+        &quot;&quot;&quot;, vars={&quot;vec&quot;: embed(candidate[&quot;label&quot;])})
+
+        if not existing:
+            # New concept — add to ontology and link to its dimension root
+            concept_id = await db.create(&quot;concept&quot;, {
+                &quot;label&quot;: candidate[&quot;label&quot;],
+                &quot;dimension&quot;: candidate[&quot;dimension&quot;],
+                &quot;embedding&quot;: embed(candidate[&quot;label&quot;]),
+                &quot;auto_generated&quot;: True
+            })
+            # Link to dimension root
+            root = await db.query(&quot;SELECT id FROM concept WHERE label = $dim LIMIT 1&quot;,
+                                  vars={&quot;dim&quot;: candidate[&quot;dimension&quot;]})
+            if root:
+                await db.create(&quot;broader&quot;, {&quot;in&quot;: concept_id, &quot;out&quot;: root[0][&quot;id&quot;]})
+        else:
+            concept_id = existing[0][&quot;id&quot;]
+
+        # Link the triggering artifact to this concept
+        await db.create(&quot;covers&quot;, {&quot;in&quot;: artifact_id, &quot;out&quot;: concept_id})
+</code></pre>
+<p><strong>Result:</strong> Every PoT-validated invocation that triggers a <code>SkillGainEvent</code> enriches the ontology. An agent that invokes <code>portfolio_optimizer</code> 50 times builds a dense subgraph of finance concepts — which every future <code>graphrag</code> phase query can traverse.</p>
+<hr />
+<h2>GraphRAG Workflow Phase</h2>
+<p>Declare in workflow YAML — no implementation required:</p>
+<pre><code class="language-yaml">phases:
+  - type: graphrag
+    ontology: skill_ontology       # which concept graph to traverse
+    dimensions: [finance, research] # restrict to these skill dimension roots
+    depth: 2                        # graph traversal hops from seed concepts
+    vector_weight: 0.6              # blend: 60% HNSW vector, 40% graph structure
+    quality_threshold: 0.4          # skip artifacts with PoT score below this
+    token_budget: 900
+    rerank: true                    # cross-encoder rerank after graph retrieval
+    collections: [skill_artifact, document_chunk]
+</code></pre>
+<hr />
+<h2>Retrieval Pipeline</h2>
+<pre><code class="language-mermaid">graph LR
+    subgraph Step1[&quot;1 — Seed Concepts&quot;]
+        QV[&quot;Query\nembedding&quot;]
+        CS[&quot;Concept\nSearch\n(HNSW)&quot;]
+        QV --&gt; CS
+    end
+
+    subgraph Step2[&quot;2 — Graph Walk&quot;]
+        CS --&gt; GW[&quot;Graph Traversal\nbroader · related · derives\ndepth=2&quot;]
+        GW --&gt; CN[&quot;Expanded\nConcept Set&quot;]
+    end
+
+    subgraph Step3[&quot;3 — Artifact Fetch&quot;]
+        CN --&gt; AF[&quot;covers→\nFetch Artifacts\n(quality_threshold)&quot;]
+        AF --&gt; VF[&quot;Vector Filter\n(HNSW rescore)&quot;]
+    end
+
+    subgraph Step4[&quot;4 — Blend + Rerank&quot;]
+        VF --&gt; BL[&quot;Score Blend\nvector_weight · graph_hops · pot_score&quot;]
+        BL --&gt; RR[&quot;Cross-Encoder\nRerank&quot;]
+        RR --&gt; OUT[&quot;Top-K\nChunks&quot;]
+    end
+</code></pre>
+<h3>SurrealDB Query</h3>
+<pre><code class="language-surql">-- Step 1: find seed concepts matching the query
+LET $seed_concepts = (
+    SELECT id
+    FROM concept
+    WHERE vector::similarity::cosine(embedding, $query_vec) &gt; 0.75
+      AND dimension IN $dimensions
+    ORDER BY vector::similarity::cosine(embedding, $query_vec) DESC
+    LIMIT 5
+);
+
+-- Step 2: traverse the graph (depth 2: broader + related)
+LET $expanded = (
+    SELECT -&gt;broader-&gt;concept.id AS ids FROM $seed_concepts
+    UNION
+    SELECT -&gt;related-&gt;concept.id AS ids FROM $seed_concepts
+    UNION
+    SELECT -&gt;broader-&gt;concept-&gt;broader-&gt;concept.id AS ids FROM $seed_concepts
+);
+
+-- Step 3: fetch artifacts linked to expanded concept set
+SELECT
+    sa.content,
+    sa.quality_score,
+    sa.agent_id,
+    vector::similarity::cosine(sa.embedding, $query_vec) AS vec_score,
+    count(&lt;-covers&lt;-concept) AS graph_degree
+FROM skill_artifact AS sa
+WHERE (&lt;-covers&lt;-concept.id) CONTAINSANY $expanded
+  AND sa.quality_score &gt;= $quality_threshold
+  AND sa.agent_id = $auth.id   -- ACL: own artifacts only (protocol default)
+ORDER BY (vec_score * $vector_weight + graph_degree * (1 - $vector_weight)) DESC
+LIMIT 20;
+</code></pre>
+<hr />
+<h2>Score Blending</h2>
+<p>Each retrieved chunk gets a combined score before reranking:</p>
+<pre><code>final_score = (vec_score * vector_weight)
+            + (graph_degree_score * (1 - vector_weight))
+            * quality_weight(pot_score)
+
+graph_degree_score = 1 / (1 + graph_hops)   # closer in graph = higher score
+quality_weight     = 0.5 + 0.5 * pot_score  # PoT-validated artifacts weighted higher
+</code></pre>
+<hr />
+<h2>Concept Extraction (Lightweight)</h2>
+<p><code>extract_concepts()</code> uses a small prompt — not a full LLM invocation:</p>
+<pre><code class="language-python">CONCEPT_PROMPT = &quot;&quot;&quot;Extract 2-4 key domain concepts from this text.
+Return JSON: [{&quot;label&quot;: &quot;...&quot;, &quot;dimension&quot;: &quot;finance|research|ops|...&quot;}]
+Text: {text}&quot;&quot;&quot;
+
+async def extract_concepts(text: str) -&gt; list[dict]:
+    response = await llm.generate(
+        CONCEPT_PROMPT.format(text=text[:500]),  # cap input
+        max_tokens=100,
+        temperature=0
+    )
+    return json.loads(response)
+</code></pre>
+<p>Token cost: ~150 tokens per extraction. Only called on <code>SkillGainEvent</code> (not every invocation) — amortized over the agent's lifetime.</p>
+<hr />
+<h2>GraphRAG vs Plain RAG</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>type: rag</code></th>
+<th><code>type: graphrag</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Retrieval</td>
+<td>HNSW vector only</td>
+<td>HNSW + graph traversal</td>
+</tr>
+<tr>
+<td>Finds</td>
+<td>Similar content</td>
+<td>Similar + conceptually related</td>
+</tr>
+<tr>
+<td>Taxonomy</td>
+<td>None</td>
+<td>Auto-grows from skill events</td>
+</tr>
+<tr>
+<td>Skill integration</td>
+<td>Injects artifacts alongside chunks</td>
+<td>Artifacts are the primary nodes</td>
+</tr>
+<tr>
+<td>Token overhead</td>
+<td>Low</td>
+<td>+~10% (graph query)</td>
+</tr>
+<tr>
+<td>Best for</td>
+<td>Document grounding</td>
+<td>Skill-heavy tasks, cross-domain reasoning</td>
+</tr>
+<tr>
+<td>Setup</td>
+<td>None</td>
+<td>Auto-seeded from skill dimensions</td>
+</tr>
+</tbody>
+</table>
+<p>Use <code>type: rag</code> for document retrieval. Use <code>type: graphrag</code> when the task requires drawing on accumulated skill knowledge across related domains.</p>
+<hr />
+<h2>Taxonomy Inspection</h2>
+<p>Operators and agents can inspect the live ontology via REST:</p>
+<pre><code>GET  /api/ontology/concepts?dimension=finance&amp;depth=2
+GET  /api/ontology/concept/{id}/neighbors
+GET  /api/ontology/agent/{id}/coverage    — which concepts an agent's artifacts cover
+POST /api/ontology/concepts               — manually add concept + link
+</code></pre>
+<hr />
+<p><em>See also: <a href="#doc-rag">rag.md</a> · <a href="#doc-skills">skills.md</a> · <a href="#doc-artifacts">artifacts.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-utilities">utilities.md</a></em>
+<em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
 </section>
 <div class="section-divider"></div>
 
