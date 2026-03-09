@@ -145,6 +145,7 @@ This document covers the **DAP protocol layer**. For the other projects:
 | [apps.md](apps.md) | DAP Apps — async message queue, @job decorator, DAPQueue, Worker Pool |
 | [bench.md](bench.md) | DAP Bench — 3 benchmark families, server DAP score, ACL accuracy |
 | [logs.md](logs.md) | DAP Logs — structured audit on every op, SurrealDB + MQTT stream, LIVE SELECT, DEFINE EVENT alerts |
+| [observability.md](observability.md) | Observability — Langfuse traces + dataset eval, Haystack guardrail phases, combined stack |
 | [migrate.md](migrate.md) | Migration from MCP / LangChain / OpenAI Functions / Python |
 | [teams.md](teams.md) | DAP Teams — multi-tenant deployment |
 

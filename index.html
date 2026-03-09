@@ -371,6 +371,7 @@
 <li><a href="#doc-apps">DAP Apps</a></li>
 <li><a href="#doc-bench">DAP Bench</a></li>
 <li><a href="#doc-logs">DAP Logs</a></li>
+<li><a href="#doc-observability">Observability</a></li>
 <li><a href="#doc-migrate">Migration Guide</a></li>
 <li><a href="#doc-teams">DAP Teams</a></li>
 <li class="sidebar-section">SurrealLife Integration</li>
@@ -705,6 +706,10 @@ DAP is the protocol. DAPNet is the network. DAPCom runs the network.</p>
 <tr>
 <td><a href="#doc-logs">logs.md</a></td>
 <td>DAP Logs — structured audit on every op, SurrealDB + MQTT stream, LIVE SELECT, DEFINE EVENT alerts</td>
+</tr>
+<tr>
+<td><a href="#doc-observability">observability.md</a></td>
+<td>Observability — Langfuse traces + dataset eval, Haystack guardrail phases, combined stack</td>
 </tr>
 <tr>
 <td><a href="#doc-migrate">migrate.md</a></td>
@@ -7036,6 +7041,459 @@ ORDER BY attempts DESC;
 - Hellerstein et al. (2010). <em>Declarative Networking.</em> VLDB. — rule-based event processing; DEFINE EVENT replaces manual alerting pipelines</p>
 </blockquote>
 <p><em>See also: <a href="#doc-surreal-events">surreal-events.md</a> · <a href="#doc-messaging">messaging.md</a> · <a href="#doc-proof-of-delivery">proof-of-delivery.md</a> · <a href="#doc-tasks">tasks.md</a> · <a href="#doc-bench">bench.md</a></em>
+<em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
+</section>
+<div class="section-divider"></div>
+
+
+<section id="doc-observability" class="doc-section">
+<h1>DAP Observability — Reference</h1>
+<p>DAP Observability combines three layers: <strong>structured audit logs</strong> (SurrealDB), <strong>distributed traces</strong> (Langfuse), and <strong>guardrail validation</strong> (Haystack). Together they give full visibility into every agent action — what ran, why it ran, whether the output was safe, and whether it was good enough.</p>
+<blockquote>
+<p>DAP Logs tell you <em>what happened</em>. Langfuse traces tell you <em>how the LLM got there</em>. Haystack guardrails tell you <em>whether the output is safe to use</em>.</p>
+</blockquote>
+<hr />
+<h2>Architecture</h2>
+<pre><code class="language-mermaid">graph TD
+    subgraph Invocation[&quot;Tool Invocation&quot;]
+        IT[&quot;InvokeTool RPC&quot;]
+    end
+
+    subgraph Guardrail[&quot;Haystack Guardrail Phase&quot;]
+        GI[&quot;Input Guardrail\nvalidate params before LLM&quot;]
+        GO[&quot;Output Guardrail\nvalidate result before return&quot;]
+    end
+
+    subgraph LLM[&quot;LLM Phase (Langfuse-traced)&quot;]
+        LF[&quot;Langfuse Trace\nspan per LLM call + PoT&quot;]
+        POT[&quot;PoT Gate\nscores output quality&quot;]
+    end
+
+    subgraph Storage[&quot;Storage&quot;]
+        SDB[&quot;SurrealDB\ntool_call_log (DAP Logs)&quot;]
+        LFB[&quot;Langfuse Backend\ntraces + spans + evals&quot;]
+    end
+
+    IT --&gt; GI
+    GI --&gt;|&quot;pass&quot;| LF
+    GI --&gt;|&quot;block&quot;| SDB
+    LF --&gt; POT
+    POT --&gt; GO
+    GO --&gt;|&quot;pass&quot;| SDB
+    GO --&gt;|&quot;block&quot;| SDB
+    LF --&gt; LFB
+    POT --&gt; LFB
+</code></pre>
+<p>Every invocation flows: <strong>input guardrail → LLM (traced) → PoT gate → output guardrail → log</strong>.</p>
+<hr />
+<h2>Langfuse Integration</h2>
+<p><a href="https://langfuse.com">Langfuse</a> is an open-source LLM observability platform. DAP integrates it as a <strong>trace exporter</strong> — every <code>InvokeTool</code> call that runs an LLM phase becomes a Langfuse trace, with child spans per phase.</p>
+<h3>Trace Structure</h3>
+<pre><code>Trace: InvokeTool(market_analysis)
+├── Span: input_guardrail         [0ms – 8ms]   ✓ pass
+├── Span: artifact_fetch          [8ms – 31ms]  3 artifacts injected
+├── Span: llm_phase               [31ms – 890ms]
+│   ├── Generation: system_prompt  (312 tokens)
+│   ├── Generation: user_prompt    (89 tokens)
+│   └── Generation: completion     (201 tokens)  → PoT score: 78
+├── Span: pot_gate                [890ms – 920ms] score 78 ≥ 65 ✓
+├── Span: output_guardrail        [920ms – 931ms] ✓ pass
+└── Score: pot_quality            78 / 100
+</code></pre>
+<h3>SDK Integration</h3>
+<pre><code class="language-python">from langfuse import Langfuse
+from langfuse.decorators import observe, langfuse_context
+
+langfuse = Langfuse(
+    public_key=settings.LANGFUSE_PUBLIC_KEY,
+    secret_key=settings.LANGFUSE_SECRET_KEY,
+    host=settings.LANGFUSE_HOST,   # self-hosted or langfuse.com
+)
+
+class DAPWorkflowRunner:
+
+    @observe(name=&quot;InvokeTool&quot;)
+    async def invoke_tool(self, tool_name: str, params: dict, agent_id: str):
+        # Attach metadata to trace
+        langfuse_context.update_current_trace(
+            name=f&quot;InvokeTool:{tool_name}&quot;,
+            user_id=agent_id,
+            metadata={
+                &quot;tool_name&quot;: tool_name,
+                &quot;team_id&quot;: self.team_id,
+                &quot;params_hash&quot;: sha256(str(params)),  # never log raw params
+            }
+        )
+
+        with langfuse_context.observe_span(&quot;input_guardrail&quot;):
+            result = await self.run_input_guardrail(tool_name, params)
+            if result.blocked:
+                langfuse_context.update_current_observation(level=&quot;WARNING&quot;, status_message=result.reason)
+                raise GuardrailError(result.reason)
+
+        artifacts = await self.fetch_artifacts(tool_name, agent_id)
+
+        with langfuse_context.observe_span(&quot;llm_phase&quot;):
+            output = await self.run_llm_phase(tool_name, params, artifacts)
+
+        pot_score = await self.run_pot_gate(tool_name, output)
+        langfuse_context.score_current_trace(&quot;pot_quality&quot;, value=pot_score / 100)
+
+        with langfuse_context.observe_span(&quot;output_guardrail&quot;):
+            validated = await self.run_output_guardrail(tool_name, output)
+
+        return validated
+</code></pre>
+<h3>Trace–Log Correlation</h3>
+<p>Both DAP Logs (SurrealDB) and Langfuse share a <strong>trace ID</strong> — enabling a full join between the structured log (what + outcome) and the trace (how the LLM got there):</p>
+<pre><code class="language-python">trace_id = langfuse_context.get_current_trace_id()
+
+# Write DAP Log with trace reference
+await db.create(&quot;tool_call_log&quot;, {
+    &quot;agent_id&quot;: f&quot;agent:{agent_id}&quot;,
+    &quot;team_id&quot;: f&quot;team:{team_id}&quot;,
+    &quot;tool_name&quot;: tool_name,
+    &quot;op&quot;: &quot;invoke&quot;,
+    &quot;params_hash&quot;: params_hash,
+    &quot;outcome&quot;: &quot;success&quot;,
+    &quot;pot_score&quot;: pot_score,
+    &quot;latency_ms&quot;: elapsed_ms,
+    &quot;token_cost&quot;: token_count,
+    &quot;trace_id&quot;: trace_id,   # ← Langfuse trace reference
+})
+</code></pre>
+<pre><code class="language-surql">-- Join DAP logs with Langfuse trace IDs for post-hoc analysis
+SELECT agent_id, tool_name, pot_score, trace_id, latency_ms
+FROM tool_call_log
+WHERE outcome = &quot;pot_failed&quot;
+  AND created_at &gt; time::now() - 7d
+ORDER BY pot_score ASC;
+-- Then fetch trace_id details from Langfuse API for deep inspection
+</code></pre>
+<hr />
+<h2>Langfuse Evaluation</h2>
+<p>Langfuse supports <strong>dataset-based evaluation</strong> — replaying past invocations against new model versions or prompts, then scoring with an LLM-as-judge.</p>
+<h3>PoT as Inline Evaluation</h3>
+<p>PoT (Proof of Thought) already runs inline. Langfuse captures every PoT score as a <strong>trace score</strong> — making it queryable across time without any additional evaluator:</p>
+<pre><code class="language-python"># After PoT scoring — record in Langfuse
+langfuse.score(
+    trace_id=trace_id,
+    name=&quot;pot_quality&quot;,
+    value=pot_score / 100,    # 0.0 – 1.0
+    comment=f&quot;threshold={threshold}, retries={retry_count}&quot;
+)
+</code></pre>
+<h3>Dataset Evaluation</h3>
+<pre><code class="language-python"># Build evaluation dataset from past DAP logs
+dataset = langfuse.create_dataset(&quot;market_analysis_evals&quot;)
+
+# Pull failed PoT invocations from SurrealDB
+failed = await db.query(&quot;&quot;&quot;
+    SELECT * FROM tool_call_log
+    WHERE tool_name = &quot;market_analysis&quot;
+      AND outcome IN [&quot;pot_failed&quot;, &quot;success&quot;]
+      AND created_at &gt; time::now() - 30d
+    LIMIT 200
+&quot;&quot;&quot;)
+
+for log in failed:
+    langfuse.create_dataset_item(
+        dataset_name=&quot;market_analysis_evals&quot;,
+        input={&quot;params_hash&quot;: log[&quot;params_hash&quot;], &quot;tool&quot;: log[&quot;tool_name&quot;]},
+        expected_output={&quot;pot_score_min&quot;: 65},
+        metadata={&quot;original_pot_score&quot;: log[&quot;pot_score&quot;]}
+    )
+
+# Run evaluation against new model version
+for item in langfuse.get_dataset(&quot;market_analysis_evals&quot;).items:
+    with item.observe(run_name=&quot;gpt-4o-vs-gemini-flash&quot;) as trace:
+        output = await invoke_with_new_model(item.input)
+        langfuse.score(trace_id=trace.id, name=&quot;pot_quality&quot;, value=output.pot_score / 100)
+</code></pre>
+<hr />
+<h2>Haystack Guardrails</h2>
+<p><a href="https://haystack.deepset.ai">Haystack</a> provides pipeline-based validation. In DAP, guardrails are a <strong>workflow phase type</strong> (<code>type: guardrail</code>) — executed before the LLM phase (input) and after PoT (output).</p>
+<h3>Workflow Definition</h3>
+<pre><code class="language-yaml">name: market_analysis
+workflow: market_analysis_flow.yaml
+</code></pre>
+<pre><code class="language-yaml"># market_analysis_flow.yaml
+phases:
+  - type: guardrail
+    id: input_check
+    direction: input
+    pipeline: guardrails/market_input.yaml
+    on_block: reject          # reject | warn | redact
+
+  - type: rag
+    id: artifact_fetch
+    skill: finance
+    top_k: 3
+
+  - type: llm
+    id: analysis
+    model: gemini-2.0-flash
+    prompt: prompts/market_analysis.jinja2
+
+  - type: proof_of_thought
+    id: pot
+    threshold: 65
+    max_retries: 2
+
+  - type: guardrail
+    id: output_check
+    direction: output
+    pipeline: guardrails/market_output.yaml
+    on_block: reject
+</code></pre>
+<h3>Input Guardrail Pipeline</h3>
+<pre><code class="language-yaml"># guardrails/market_input.yaml
+components:
+  - name: symbol_validator
+    type: RegexValidator
+    params:
+      pattern: &quot;^[A-Z]{2,10}$&quot;
+      field: symbol
+
+  - name: injection_detector
+    type: PromptInjectionDetector
+    params:
+      threshold: 0.85
+
+  - name: pii_filter
+    type: PIIDetector
+    params:
+      entities: [EMAIL, PHONE, SSN]
+      action: block
+
+pipeline:
+  - symbol_validator
+  - injection_detector
+  - pii_filter
+</code></pre>
+<h3>Output Guardrail Pipeline</h3>
+<pre><code class="language-yaml"># guardrails/market_output.yaml
+components:
+  - name: hallucination_check
+    type: LLMEvaluator
+    params:
+      model: gemini-2.0-flash
+      prompt: &quot;Does this analysis cite only real, verifiable market data? Answer YES or NO.&quot;
+      threshold: 0.8
+      field: analysis_text
+
+  - name: risk_disclosure_check
+    type: KeywordPresenceChecker
+    params:
+      required: [&quot;risk&quot;, &quot;not financial advice&quot;]
+      action: warn    # warn only, don't block
+
+  - name: length_guard
+    type: LengthValidator
+    params:
+      min_tokens: 50
+      max_tokens: 2000
+
+pipeline:
+  - hallucination_check
+  - risk_disclosure_check
+  - length_guard
+</code></pre>
+<h3>Python Integration</h3>
+<pre><code class="language-python">from haystack import Pipeline
+from haystack.components.validators import RegexValidator
+from haystack.components.routers import MetadataRouter
+
+class DAPGuardrailPhase:
+    def __init__(self, pipeline_path: str, direction: str):
+        self.pipeline = Pipeline.load(pipeline_path)
+        self.direction = direction
+
+    async def run(self, payload: dict) -&gt; GuardrailResult:
+        result = self.pipeline.run(payload)
+        blocked = result.get(&quot;blocked&quot;, False)
+        reason = result.get(&quot;reason&quot;, &quot;&quot;)
+
+        # Log guardrail decision
+        await db.create(&quot;guardrail_log&quot;, {
+            &quot;direction&quot;: self.direction,
+            &quot;pipeline&quot;: self.pipeline_path,
+            &quot;blocked&quot;: blocked,
+            &quot;reason&quot;: reason,
+            &quot;tool_name&quot;: payload.get(&quot;tool_name&quot;),
+            &quot;agent_id&quot;: payload.get(&quot;agent_id&quot;),
+            &quot;created_at&quot;: datetime.utcnow(),
+        })
+
+        return GuardrailResult(blocked=blocked, reason=reason)
+</code></pre>
+<hr />
+<h2>Combined Observability Stack</h2>
+<pre><code class="language-mermaid">graph LR
+    subgraph Inbound[&quot;Inbound&quot;]
+        REQ[&quot;InvokeTool Request&quot;]
+    end
+
+    subgraph Guard1[&quot;Input Guardrail (Haystack)&quot;]
+        IG[&quot;injection · PII · schema&quot;]
+    end
+
+    subgraph Exec[&quot;Execution (Langfuse-traced)&quot;]
+        RAG[&quot;RAG Phase&quot;]
+        LLM[&quot;LLM Phase&quot;]
+        POT[&quot;PoT Gate&quot;]
+    end
+
+    subgraph Guard2[&quot;Output Guardrail (Haystack)&quot;]
+        OG[&quot;hallucination · length · disclosure&quot;]
+    end
+
+    subgraph Sink[&quot;Observability Sinks&quot;]
+        SDBL[&quot;SurrealDB\ntool_call_log + guardrail_log&quot;]
+        LFT[&quot;Langfuse\ntraces + scores + datasets&quot;]
+        MQ[&quot;MQTT\ndap/logs/stream&quot;]
+    end
+
+    REQ --&gt; IG
+    IG --&gt;|&quot;pass&quot;| RAG
+    RAG --&gt; LLM
+    LLM --&gt; POT
+    POT --&gt; OG
+    OG --&gt;|&quot;pass / block&quot;| SDBL
+    OG --&gt; MQ
+    LLM --&gt; LFT
+    POT --&gt; LFT
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Tool</th>
+<th>What it captures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Audit log</strong></td>
+<td>SurrealDB <code>tool_call_log</code></td>
+<td>Outcome, params_hash, latency, token cost, PoT score</td>
+</tr>
+<tr>
+<td><strong>Distributed trace</strong></td>
+<td>Langfuse</td>
+<td>LLM prompts, completions, token counts, span timing</td>
+</tr>
+<tr>
+<td><strong>Evaluation</strong></td>
+<td>Langfuse Datasets</td>
+<td>PoT score trends, A/B model comparison, regression detection</td>
+</tr>
+<tr>
+<td><strong>Input guardrail</strong></td>
+<td>Haystack Pipeline</td>
+<td>Injection, PII, schema violations — blocked before LLM</td>
+</tr>
+<tr>
+<td><strong>Output guardrail</strong></td>
+<td>Haystack Pipeline</td>
+<td>Hallucination, length, required disclosures</td>
+</tr>
+<tr>
+<td><strong>Stream</strong></td>
+<td>MQTT</td>
+<td>Real-time log feed for n8n, dashboards, alerting</td>
+</tr>
+<tr>
+<td><strong>Alert rules</strong></td>
+<td>SurrealDB DEFINE EVENT</td>
+<td>Pattern-triggered escalation (repeated failures, farming)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>SurrealDB Schema Extension</h2>
+<pre><code class="language-surql">-- Guardrail log — separate table, linked to tool_call_log
+DEFINE TABLE guardrail_log SCHEMAFULL PERMISSIONS
+    FOR select WHERE $auth.team_id = team_id OR $auth.role CONTAINS &quot;admin&quot;
+    FOR create NONE
+    FOR update NONE
+    FOR delete NONE;
+
+DEFINE FIELD id          ON guardrail_log TYPE record;
+DEFINE FIELD tool_name   ON guardrail_log TYPE string;
+DEFINE FIELD agent_id    ON guardrail_log TYPE record&lt;agent&gt;;
+DEFINE FIELD team_id     ON guardrail_log TYPE record&lt;team&gt;;
+DEFINE FIELD direction   ON guardrail_log TYPE string;   -- input | output
+DEFINE FIELD pipeline    ON guardrail_log TYPE string;
+DEFINE FIELD blocked     ON guardrail_log TYPE bool;
+DEFINE FIELD reason      ON guardrail_log TYPE option&lt;string&gt;;
+DEFINE FIELD trace_id    ON guardrail_log TYPE option&lt;string&gt;;   -- Langfuse trace ref
+DEFINE FIELD created_at  ON guardrail_log TYPE datetime DEFAULT time::now();
+
+-- Add trace_id to existing tool_call_log
+DEFINE FIELD trace_id ON tool_call_log TYPE option&lt;string&gt;;
+</code></pre>
+<hr />
+<h2>Alert: Repeated Guardrail Blocks</h2>
+<pre><code class="language-surql">-- Alert on repeated input blocks for same agent (possible adversarial probing)
+DEFINE EVENT guardrail_probe_detect ON guardrail_log
+WHEN $event = &quot;CREATE&quot; AND $after.blocked = true AND $after.direction = &quot;input&quot; THEN {
+    LET $recent_blocks = (
+        SELECT count() FROM guardrail_log
+        WHERE agent_id = $after.agent_id
+          AND blocked = true
+          AND direction = &quot;input&quot;
+          AND created_at &gt; time::now() - 1h
+        GROUP ALL
+    )[0].count;
+
+    IF $recent_blocks &gt;= 5 {
+        http::post('http://dapnet/internal/alerts', {
+            type:  &quot;guardrail_probe_suspected&quot;,
+            agent: $after.agent_id,
+            count: $recent_blocks,
+            last_reason: $after.reason,
+        });
+    };
+};
+</code></pre>
+<hr />
+<h2>Deployment</h2>
+<h3>Self-Hosted Langfuse (Docker)</h3>
+<pre><code class="language-yaml"># docker-compose.yml addition
+langfuse:
+  image: langfuse/langfuse:latest
+  ports:
+    - &quot;3100:3000&quot;
+  environment:
+    DATABASE_URL: postgresql://langfuse:secret@postgres:5432/langfuse
+    NEXTAUTH_SECRET: your-secret
+    SALT: your-salt
+  depends_on:
+    - postgres
+</code></pre>
+<pre><code class="language-env"># .env — DAP server
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=http://langfuse:3100
+LANGFUSE_ENABLED=true
+</code></pre>
+<h3>Disabling per Environment</h3>
+<pre><code class="language-yaml"># Guardrail phase with disabled flag — skip in local dev
+phases:
+  - type: guardrail
+    id: input_check
+    enabled: ${GUARDRAILS_ENABLED:-true}
+    pipeline: guardrails/market_input.yaml
+</code></pre>
+<hr />
+<blockquote>
+<p><strong>References</strong>
+- Langfuse (2024). <em>Open Source LLM Observability.</em> <a href="https://langfuse.com">langfuse.com</a> — trace-level visibility into LLM calls; DAP uses Langfuse for per-span observability
+- deepset (2024). <em>Haystack 2.0 — Composable AI Pipelines.</em> <a href="https://haystack.deepset.ai">haystack.deepset.ai</a> — modular pipeline components; DAP guardrail phase runs Haystack pipelines as validation gates
+- Breck et al. (2017). <em>The ML Test Score.</em> Google. — production ML validation principles; guardrail phases operationalize input/output validation at inference time</p>
+</blockquote>
+<p><em>See also: <a href="#doc-logs">logs.md</a> · <a href="#doc-proof-of-thought">proof-of-thought.md</a> · <a href="#doc-workflows">workflows.md</a> · <a href="#doc-surreal-events">surreal-events.md</a> · <a href="#doc-n8n">n8n.md</a></em>
 <em>Full spec: <a href="../../planning/prd/dap_protocol.md">dap_protocol.md</a></em></p>
 </section>
 <div class="section-divider"></div>
